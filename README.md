@@ -1,6 +1,6 @@
 # Festival Clean-Up Robot Environment
 
-This repository contains a custom OpenAI Gym (Gymnasium) environment for simulating a robot that collects trash on a festival terrain. The robot moves around, picks up trash, and drops it off at bins when full.
+This repository contains a custom OpenAI Gym (Gymnasium) environment for simulating a robot that collects trash on the Flux Field of the TU/e. The robot moves around, picks up trash, and drops it off at bins when full.
 
 The environment is built to support reinforcement learning, with a continuous state space and a discrete action space.
 
