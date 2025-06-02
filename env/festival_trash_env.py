@@ -65,6 +65,11 @@ class EnvConfig:
     # episode length
     max_steps: int = 1000
 
+    # benches
+    bench_count: int = 6
+    bench_width: float = 2.0
+    bench_height: float = 1.5
+
 
 # mapping action index → (dx, dy)
 DIRECTIONS = [
@@ -288,12 +293,68 @@ class FestivalEnv(gym.Env):
         # ----------------------------------
         # 4. create yellow benches
         # ----------------------------------
+        self.rect_obs = []
 
-        self.rect_obs = [
-            (self.cfg.width / 2,  40.0, 6.0, 1.0, 0.0),   # midden, boven
-            (self.cfg.width / 2,  70.0, 6.0, 1.0, 0.0),   # midden
-            (self.cfg.width / 2, 100.0, 6.0, 1.0, 0.0),   # midden, onder
-        ]
+        attempts = 0
+        max_attempts = 1000
+        benches_created = 0
+
+        while benches_created < self.cfg.bench_count and attempts < max_attempts:
+            attempts += 1
+            # Random position inside the field boundaries (keeping robot radius margin)
+            x = self.rng.uniform(self.cfg.robot_radius, self.cfg.width - self.cfg.robot_radius)
+            y = self.rng.uniform(self.cfg.robot_radius, self.cfg.height - self.cfg.robot_radius)
+
+            # Random rotation angle [0, 360)
+            deg = self.rng.uniform(0, 360)
+
+            # Check collisions with trees or bins
+            collides = False
+
+            # Check collision with trees
+            for tx, ty in self.trees:
+                # Approximate collision check: distance between bench center and tree less than sum of radii plus some margin
+                # Here we simplify by using distance between centers and bench max half-diagonal
+                bench_radius = math.hypot(self.cfg.bench_width / 2, self.cfg.bench_height / 2)
+                if math.hypot(x - tx, y - ty) < bench_radius + self.cfg.tree_radius:
+                    collides = True
+                    break
+
+            if collides:
+                continue
+
+            # Check collision with bins
+            bin_radius = 0.75
+            for bx, by in self.bins:
+                bench_radius = math.hypot(self.cfg.bench_width / 2, self.cfg.bench_height / 2)
+                if math.hypot(x - bx, y - by) < bench_radius + bin_radius:
+                    collides = True
+                    break
+
+            if collides:
+                continue
+
+            # If no collision, add bench
+            self.rect_obs.append((x, y, self.cfg.bench_width, self.cfg.bench_height, deg))
+            benches_created += 1
+
+        # Remove trash underneath benches
+        new_trash = []
+        new_mask = []
+        for (tx, ty), alive in zip(self.trash, self.trash_mask):
+            if not alive:
+                continue
+            # Check if trash is under any bench (using _point_in_rot_rect helper)
+            under_bench = False
+            for bx, by, bw, bh, bdeg in self.rect_obs:
+                if _point_in_rot_rect(tx, ty, bx, by, bw, bh, bdeg):
+                    under_bench = True
+                    break
+            if not under_bench:
+                new_trash.append((tx, ty))
+                new_mask.append(True)
+        self.trash = new_trash
+        self.trash_mask = np.array(new_mask, dtype=bool)
 
         # ----------------------------------
         # 5. robot init position (centre)

@@ -2,3 +2,4 @@ gymnasium==0.29.1
 matplotlib>=3.5
 numpy>=1.21
 tqdm>=4.60
+torch>=
