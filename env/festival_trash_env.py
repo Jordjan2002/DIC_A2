@@ -49,8 +49,8 @@ class EnvConfig:
     trash_radius: float = 0.15
 
     # entities
-    max_trash: int = 50
-    max_load: int = 1
+    max_trash: int = 200
+    max_load: int = 20
 
     # sensor crop (↑ resolution bumped to 128×128)
     crop_size: float = 15.0
@@ -59,11 +59,11 @@ class EnvConfig:
     # reward scalars
     step_penalty: float = -0.01
     pickup_reward: float = 1.0
-    unload_reward: float = 5.0   # per drop action, applied once (not per item)
+    unload_reward: float = 0.5   # per item
     illegal_penalty: float = -1.0
 
     # episode length
-    max_steps: int = 1000
+    max_steps: int = 10_000
 
     # benches
     bench_count: int = 6
@@ -81,6 +81,7 @@ DIRECTIONS = [
     (-1, 1),  # SW
     (-1, 0),  # W
     (-1, -1), # NW
+    (0,   0)
 ]
 
 
@@ -382,20 +383,22 @@ class FestivalEnv(gym.Env):
         info = {"illegal": False}
 
         dx, dy = DIRECTIONS[action]
-        nx = self.x + dx * 1.0
-        ny = self.y + dy * 1.0
 
-        # illegal move handling
-        if self._collides(nx, ny):
-            reward += self.cfg.illegal_penalty
-            info["illegal"] = True
-        else:
-            self.x, self.y = nx, ny
+        if (dx, dy) != (0, 0):
+            nx = self.x + dx * 1.0
+            ny = self.y + dy * 1.0
+
+            # illegal move handling
+            if self._collides(nx, ny):
+                reward += self.cfg.illegal_penalty
+                info["illegal"] = True
+            else:
+                self.x, self.y = nx, ny
 
         # drop‑off: if at a bin (< 1 m)
         for bx, by in self.bins:
             if math.hypot(self.x - bx, self.y - by) <= 1.0 and self.load > 0:
-                reward += self.cfg.unload_reward
+                reward += self.load * self.cfg.unload_reward
                 self.load = 0
                 break
 
