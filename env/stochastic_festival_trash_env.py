@@ -63,7 +63,7 @@ class EnvConfig:
     illegal_penalty: float = -1.0
 
     # episode length
-    max_steps: int = 10_000
+    max_steps: int = 1000
 
     # benches
     bench_count: int = 6
@@ -111,7 +111,7 @@ def _point_in_rot_rect(px, py, cx, cy, w, h, deg):
 
 class Person:
     """Moving festival visitor."""
-    SPEED = 1.0         # m per step (same as robot)
+    SPEED = 0.9         # m per step (same as robot)
 
     def __init__(self, x, y, vx, vy):
         self.x = x
@@ -151,7 +151,7 @@ class FestivalEnvPeople(gym.Env):
 
         self.people: list[Person] = []
         self.person_rng = np.random.default_rng(seed)
-        self.person_arrival_rate = 0.2   # λ  (expected arrivals per step)
+        self.person_arrival_rate = 0.4   # (expected arrivals per step)
 
     # --------------------------------------------------------------------- #
     # geometry helpers
@@ -409,68 +409,77 @@ class FestivalEnvPeople(gym.Env):
 
         # --------------------  people arrival  --------------------
         n_new = self.person_rng.poisson(self.person_arrival_rate)
+
         for _ in range(n_new):
-            edge = self.person_rng.choice(("top", "bottom", "left", "right"))
+            for _ in range(15):                       # <= retry up to 15 times
+                edge = self.person_rng.choice(("top", "bottom", "left", "right"))
 
-            if edge == "top":          # y = 0   → candidate moves: S, SW, SE
-                x, y = self.person_rng.uniform(0, self.cfg.width), 0.0
-                dir_choices = [(0, 1), (-1, 1), (1, 1)]
-            elif edge == "bottom":     # y = H   → N, NW, NE
-                x, y = self.person_rng.uniform(0, self.cfg.width), self.cfg.height
-                dir_choices = [(0, -1), (-1, -1), (1, -1)]
-            elif edge == "left":       # x = 0   → E, NE, SE
-                x, y = 0.0, self.person_rng.uniform(0, self.cfg.height)
-                dir_choices = [(1, 0), (1, -1), (1, 1)]
-            else:                      # right   → W, NW, SW
-                x, y = self.cfg.width, self.person_rng.uniform(0, self.cfg.height)
-                dir_choices = [(-1, 0), (-1, -1), (-1, 1)]
+                if edge == "top":
+                    x, y        = self.person_rng.uniform(0, self.cfg.width), 0.0
+                    dir_choices = [(0, 1), (-1, 1), (1, 1)]
+                elif edge == "bottom":
+                    x, y        = self.person_rng.uniform(0, self.cfg.width), self.cfg.height
+                    dir_choices = [(0, -1), (-1, -1), (1, -1)]
+                elif edge == "left":
+                    x, y        = 0.0, self.person_rng.uniform(0, self.cfg.height)
+                    dir_choices = [(1, 0), (1, -1), (1, 1)]
+                else:  # right
+                    x, y        = self.cfg.width, self.person_rng.uniform(0, self.cfg.height)
+                    dir_choices = [(-1, 0), (-1, -1), (-1, 1)]
 
-            self.person_rng.shuffle(dir_choices)        # random order each spawn
-            for vx, vy in dir_choices:                  # try all three
-                nx, ny = x + vx, y + vy                # *first* step into the field
-                if self._inside_field(nx, ny) and not self._collides(nx, ny):
-                    self.people.append(Person(x, y, vx, vy))  # store last step as heading
-                    break       
+                self.person_rng.shuffle(dir_choices)
+
+                for vx, vy in dir_choices:            # test each of the 3 headings
+                    nx, ny = x + vx, y + vy           # first step into the field
+                    # must be inside and collision-free — incl. no other visitor
+                    if (self._inside_field(nx, ny) and
+                        not self._collides(nx, ny) and
+                        not any(math.hypot(nx - p.x, ny - p.y) < 0.8 for p in self.people)):
+                        self.people.append(Person(x, y, vx, vy))
+                        break                         # person spawned, exit dir loop
+                else:
+                    continue      # none of the 3 dirs worked → try another edge/pos
+                break             # spawned → stop retry loop for this person  
 
         # ----------------  move existing people  ----------------
-        alive = []
-        for p in self.people:
-            # preferred 3 directions based on last heading
-            if   p.vx > 0:  dirs = [(1, 0), (1, 1), (1, -1)]
-            elif p.vx < 0:  dirs = [(-1, 0), (-1, 1), (-1, -1)]
-            elif p.vy > 0:  dirs = [(0, 1), (1, 1), (-1, 1)]
-            else:           dirs = [(0, -1), (1, -1), (-1, -1)]
+        alive: list[Person] = []
 
-            self.person_rng.shuffle(dirs)                # random order
-            moved = False
-            # first try the 3 preferred directions
+        for p in self.people:
+            # 1 candidate directions based on current heading
+            if   p.vx > 0:  dirs = [(1, 0), (1, 1), (1, -1)]          # east
+            elif p.vx < 0:  dirs = [(-1, 0), (-1, 1), (-1, -1)]       # west
+            elif p.vy > 0:  dirs = [(0, 1), (1, 1), (-1, 1)]          # south
+            else:            dirs = [(0,-1), (1,-1), (-1,-1)]         # north
+
+            self.person_rng.shuffle(dirs)
+            moved = False                 # <- will become True if a legal step found
+
             for vx, vy in dirs:
-                nx, ny = p.x + vx, p.y + vy
-                if self._inside_field(nx, ny) and not self._collides(nx, ny):
-                    p.x, p.y, p.vx, p.vy = nx, ny, vx, vy
-                    moved = True
+                nx, ny = p.x + vx * Person.SPEED, p.y + vy * Person.SPEED
+
+                # 2 wall --> visitor immediately leaves (do not append)
+                if nx < 0 or nx > self.cfg.width or ny < 0 or ny > self.cfg.height:
                     break
 
-            # if still blocked, try any of the 8 neighbouring cells
-            if not moved:
-                for vx, vy in [(-1,-1), (-1,0), (-1,1),
-                            ( 0,-1),         ( 0,1),
-                            ( 1,-1), ( 1,0), ( 1,1)]:
-                    nx, ny = p.x + vx, p.y + vy
-                    if self._inside_field(nx, ny) and not self._collides(nx, ny):
-                        p.x, p.y, p.vx, p.vy = nx, ny, vx, vy
-                        moved = True
-                        break
-            # if still blocked, stay in place this turn
+                # 3 (optional) bin --> visitor also leaves
+                if any(math.hypot(nx - bx, ny - by) <= 0.75 + 0.4 for bx, by in self.bins):
+                    break
 
-            # keep while centre is at least 0.5 m inside the outer rectangle
-            if (-0.5 <= p.x <= self.cfg.width + 0.5 and
-                -0.5 <= p.y <= self.cfg.height + 0.5):
+                # 4 static obstacles / robot / other visitors
+                if self._collides(nx, ny):
+                    continue
+                if any(math.hypot(nx - q.x, ny - q.y) < 0.8 for q in self.people if q is not p):
+                    continue
+
+                # 5 free step – perform it
+                p.x, p.y, p.vx, p.vy = nx, ny, vx, vy
+                moved = True
+                break
+
+            if moved:                      # keep only after a successful inside-step
                 alive.append(p)
 
         self.people = alive
-
-
 
         reward = self.cfg.step_penalty
         terminated = truncated = False

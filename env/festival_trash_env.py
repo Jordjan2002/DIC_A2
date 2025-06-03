@@ -63,7 +63,7 @@ class EnvConfig:
     illegal_penalty: float = -1.0
 
     # episode length
-    max_steps: int = 10_000
+    max_steps: int = 1_000
 
     # benches
     bench_count: int = 6

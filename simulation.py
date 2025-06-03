@@ -10,9 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib import patches
 import numpy as np
 from tqdm import tqdm
-
 from env import EnvConfig
-
 from agents import RandomAgent
 from typing import TYPE_CHECKING
 
@@ -114,8 +112,7 @@ class FieldRenderer:
 
         # yellow benches
         for cx, cy, w, h, deg in env.rect_obs:
-            rect = patches.Rectangle((cx - w/2, cy - h/2), w, h,
-                                    angle=deg, color="yellow", alpha=0.7)
+            rect = patches.Rectangle((cx - w/2, cy - h/2), w, h,angle=deg, color="yellow", alpha=0.7, rotation_point="center")
             self.ax.add_patch(rect)
 
         if self.show_people and hasattr(env, "people"): #if self.show_people:
@@ -134,6 +131,20 @@ class FieldRenderer:
             self.trash_patches.append(circ)
 
     def update(self, env: FestivalEnv, illegal: bool = False):
+
+        if self.show_people and hasattr(env, "people"):
+            # add missing patches
+            while len(self.person_patches) < len(env.people):
+                circ = patches.Circle((0, 0), 0.4, color="purple")
+                self.ax.add_patch(circ)
+                self.person_patches.append(circ)
+
+            # delete surplus patches
+            while len(self.person_patches) > len(env.people):
+                circ = self.person_patches.pop()
+                circ.remove()                      # fully remove from the axes
+
+
         self.robot_patch.center = (env.x, env.y)
         half = self.cfg.crop_size / 2
         self.sensor_patch.set_xy((env.x - half, env.y - half))
@@ -178,6 +189,7 @@ def run_episode(env: FestivalEnv, agent, renderer: FieldRenderer | None = None):
     while not done:
         action = agent.act(obs)
         obs, reward, done, trunc, info = env.step(action)
+        done = done or trunc  
         total_reward += reward
         if info.get("illegal", False):
             illegal_moves += 1
@@ -205,7 +217,7 @@ if __name__ == "__main__":
     else:
         from env import FestivalEnv as EnvClass
 
-    cfg = EnvConfig()
+    cfg = EnvConfig(max_steps=500)
     env = EnvClass(cfg)  
     agent = RandomAgent(env.action_space)
 
