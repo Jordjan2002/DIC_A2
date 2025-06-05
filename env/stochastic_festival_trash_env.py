@@ -28,6 +28,7 @@ from typing import List, Tuple
 import gymnasium as gym
 from gymnasium.spaces import Box, Dict, Discrete
 import numpy as np
+from numba import njit, prange
 
 
 # --------------------------------------------------------------------------- #
@@ -54,7 +55,7 @@ class EnvConfig:
 
     # sensor crop (↑ resolution bumped to 128×128)
     crop_size: float = 15.0
-    img_px: int = 128
+    img_px: int = 64
 
     # reward scalars
     step_penalty: float = -0.01
@@ -63,7 +64,7 @@ class EnvConfig:
     illegal_penalty: float = -1.0
 
     # episode length
-    max_steps: int = 1000
+    max_steps: int = 10_000
 
     # benches
     bench_count: int = 6
@@ -83,6 +84,46 @@ DIRECTIONS = [
     (-1, -1), # NW
     (0,   0)
 ]
+
+@njit(fastmath=True, cache=True)
+def _sensor_fast(px, half, cell,
+                 rx, ry,                       # robot-coords
+                 trees, t_rad,
+                 bins_xy,                      # (N_bin, 2)
+                 trash_xy, trash_mask):        # (N_trash, 2), (N_trash,)
+    img = np.zeros((px, px), dtype=np.float32)
+
+    # -------- helper om cirkel (disc) te rasteren --------
+    def paint_disc(cx, cy, rad, value):
+        gx = (cx - (rx - half)) / cell
+        gy = (cy - (ry - half)) / cell
+        r_px = rad / cell
+        x0 = max(0, int(gx - r_px - 1))
+        x1 = min(px - 1, int(gx + r_px + 1))
+        y0 = max(0, int(gy - r_px - 1))
+        y1 = min(px - 1, int(gy + r_px + 1))
+        for iy in range(y0, y1 + 1):
+            dy = iy - gy
+            dy2 = dy * dy
+            for ix in range(x0, x1 + 1):
+                dx = ix - gx
+                if dx * dx + dy2 <= r_px * r_px:
+                    img[iy, ix] = value
+
+    # teken alle trees (waarde 0.8)
+    for k in range(trees.shape[0]):
+        paint_disc(trees[k, 0], trees[k, 1], t_rad, 0.8)
+
+    # teken alle bins (waarde 0.5)  → we gebruiken straal 0.75 m
+    for k in range(bins_xy.shape[0]):
+        paint_disc(bins_xy[k, 0], bins_xy[k, 1], 0.75, 0.5)
+
+    # teken alle trash (waarde 1.0)
+    for k in range(trash_xy.shape[0]):
+        if trash_mask[k]:
+            paint_disc(trash_xy[k, 0], trash_xy[k, 1], 0.15, 1.0)
+
+    return img
 
 
 def _circle_vs_aabb(cx, cy, rad, rx, ry, w, h):
@@ -108,6 +149,7 @@ def _point_in_rot_rect(px, py, cx, cy, w, h, deg):
     dx = math.cos(theta)*(px - cx) - math.sin(theta)*(py - cy)
     dy = math.sin(theta)*(px - cx) + math.cos(theta)*(py - cy)
     return abs(dx) <= w/2 and abs(dy) <= h/2
+
 
 class Person:
     """Moving festival visitor."""
@@ -189,82 +231,23 @@ class FestivalEnvPeople(gym.Env):
     # --------------------------------------------------------------------- #
     # sensor image – now 128×128 and encodes trees & bins
     # --------------------------------------------------------------------- #
+
     def _sensor_image(self) -> np.ndarray:
-        px = self.cfg.img_px
+        px   = self.cfg.img_px
         half = self.cfg.crop_size / 2
         cell = self.cfg.crop_size / px
-        img = np.zeros((px, px), dtype=np.float32)
 
-        # helper to paint discs in grid coords
-        def _paint_circle(cx, cy, rad, value):
-            gx = int((cx - (self.x - half)) / cell)
-            gy = int((cy - (self.y - half)) / cell)
-            r_px = int(rad / cell) + 1
-            for dy in range(-r_px, r_px + 1):
-                for dx in range(-r_px, r_px + 1):
-                    ix = gx + dx
-                    iy = gy + dy
-                    if 0 <= ix < px and 0 <= iy < px:
-                        if dx * dx + dy * dy <= r_px * r_px:
-                            img[iy, ix] = value
+        # lists to NumPy float32-arrays (need Numba)
+        trees_arr = np.asarray(self.trees, dtype=np.float32) if len(self.trees) > 0 else np.zeros((0,2), dtype=np.float32)
+        bins_arr  = np.asarray(self.bins,  dtype=np.float32) if len(self.bins)  > 0 else np.zeros((0,2), dtype=np.float32)
+        trash_arr = np.asarray(self.trash, dtype=np.float32) if len(self.trash) > 0 else np.zeros((0,2), dtype=np.float32)
+        mask_arr  = self.trash_mask.astype(np.bool_) if (self.trash_mask is not None) else np.zeros(0, dtype=np.bool_)
 
-        # trees  (value 0.8)
-        for tx, ty in self.trees:
-            if abs(tx - self.x) <= half + self.cfg.tree_radius and abs(ty - self.y) <= half + self.cfg.tree_radius:
-                _paint_circle(tx, ty, self.cfg.tree_radius, 0.8)
-        # bins   (value 0.5)
-        bin_r = 0.75
-        for bx, by in self.bins:
-            x0 = int((bx - bin_r - (self.x - half)) / cell)
-            x1 = int((bx + bin_r - (self.x - half)) / cell)
-            y0 = int((by - bin_r - (self.y - half)) / cell)
-            y1 = int((by + bin_r - (self.y - half)) / cell)
-            x0, x1 = max(0, x0), min(px - 1, x1)
-            y0, y1 = max(0, y0), min(px - 1, y1)
-            img[y0:y1+1, x0:x1+1] = 0.5
-
-        # trash  (value 1.0)
-        for (tx, ty), alive in zip(self.trash, self.trash_mask):
-            if not alive:
-                continue
-            if abs(tx - self.x) <= half and abs(ty - self.y) <= half:
-                _paint_circle(tx, ty, self.cfg.trash_radius, 1.0)
-
-        # people  (value 0.3)
-        for p in self.people:
-            if abs(p.x - self.x) <= half and abs(p.y - self.y) <= half:
-                _paint_circle(p.x, p.y, 0.4, 0.3)
-
-
-        # rechthoeken  (waarde 0.6)
-        for rx, ry, w, h, deg in self.rect_obs:
-            # simpele rastering: bounding box in grid-coord
-            ang = math.radians(deg)
-            # corners in worldcoordinates
-            corners = []
-            for sx in (-w/2, w/2):
-                for sy in (-h/2, h/2):
-                    cx = rx + math.cos(ang)*sx - math.sin(ang)*sy
-                    cy = ry + math.sin(ang)*sx + math.cos(ang)*sy
-                    corners.append((cx, cy))
-            xs, ys = zip(*corners)
-            if (max(xs) < self.x - half or min(xs) > self.x + half or
-                max(ys) < self.y - half or min(ys) > self.y + half):
-                continue
-            # paint rough bbox in grid (fast, not pixel-perfect)
-            _paint_circle(rx, ry, max(w, h)/2, 0.6)
-
-        # walls → value 0.9
-        cell = self.cfg.crop_size / self.cfg.img_px
-        half = self.cfg.crop_size / 2
-        for i in range(self.cfg.img_px):
-            for j in range(self.cfg.img_px):
-                gx = self.x - half + j * cell
-                gy = self.y - half + i * cell
-                if (gx < self.cfg.robot_radius or gx > self.cfg.width - self.cfg.robot_radius or
-                    gy < self.cfg.robot_radius or gy > self.cfg.height - self.cfg.robot_radius):
-                    img[i, j] = 0.9
-
+        img = _sensor_fast(px, half, cell,
+                           self.x, self.y,
+                           trees_arr, self.cfg.tree_radius,
+                           bins_arr,
+                           trash_arr, mask_arr)
 
         return img[None, ...]
 
@@ -403,6 +386,17 @@ class FestivalEnvPeople(gym.Env):
             1.0 if self.load >= self.cfg.max_load else 0.0,
         ], dtype=np.float32)
         return {"image": self._sensor_image(), "state": state_vec}
+    
+    # --- helper: collision only with “living” things and walls ----------------
+    def _people_blocked(self, x: float, y: float) -> bool:
+        """Return True if (x,y) hits the robot or another visitor."""
+        # hit the robot
+        if math.hypot(x - self.x, y - self.y) <= 0.75 + 0.4:       # robot r + person r
+            return True
+        # hit another visitor
+        return any(math.hypot(x - q.x, y - q.y) < 0.8 for q in self.people)
+# --------------------------------------------------------------------------
+
 
     def step(self, action: int):
         self.steps += 1
@@ -441,15 +435,27 @@ class FestivalEnvPeople(gym.Env):
                     continue      # none of the 3 dirs worked → try another edge/pos
                 break             # spawned → stop retry loop for this person  
 
+
         # ----------------  move existing people  ----------------
         alive: list[Person] = []
 
         for p in self.people:
-            # 1 candidate directions based on current heading
-            if   p.vx > 0:  dirs = [(1, 0), (1, 1), (1, -1)]          # east
-            elif p.vx < 0:  dirs = [(-1, 0), (-1, 1), (-1, -1)]       # west
-            elif p.vy > 0:  dirs = [(0, 1), (1, 1), (-1, 1)]          # south
-            else:            dirs = [(0,-1), (1,-1), (-1,-1)]         # north
+            # # 1 candidate directions based on current heading
+            # if   p.vx > 0:  dirs = [(1, 0), (1, 1), (1, -1)]          # east
+            # elif p.vx < 0:  dirs = [(-1, 0), (-1, 1), (-1, -1)]       # west
+            # elif p.vy > 0:  dirs = [(0, 1), (1, 1), (-1, 1)]          # south
+            # else:            dirs = [(0,-1), (1,-1), (-1,-1)]         # north
+
+            if   p.vy > 0:                      # beweegt zuidwaarts
+                dirs = [(0, 1), (1, 1), (-1, 1)]
+            elif p.vy < 0:                      # beweegt noordwaarts
+                dirs = [(0,-1), (1,-1), (-1,-1)]
+            elif p.vx > 0:                      # beweegt oostwaarts
+                dirs = [(1, 0), (1, 1), (1,-1)]
+            elif p.vx < 0:                      # beweegt westwaarts
+                dirs = [(-1, 0), (-1, 1), (-1,-1)]
+            else:                               # zou niet gebeuren, maar voor de zekerheid
+                dirs = [(0,1), (0,-1), (1,0), (-1,0)]
 
             self.person_rng.shuffle(dirs)
             moved = False                 # <- will become True if a legal step found
@@ -466,7 +472,7 @@ class FestivalEnvPeople(gym.Env):
                     break
 
                 # 4 static obstacles / robot / other visitors
-                if self._collides(nx, ny):
+                if self._people_blocked(nx, ny): #self._collides(nx, ny)
                     continue
                 if any(math.hypot(nx - q.x, ny - q.y) < 0.8 for q in self.people if q is not p):
                     continue
