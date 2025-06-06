@@ -18,11 +18,12 @@ The environment is built to support reinforcement learning, with a continuous st
 
 ## State and Action Spaces
 
+
 ### Observation (Dict)
 - `image`: shape `(1, 128, 128)`, values:
   - `1.0` → trash
   - `0.8` → trees
-  - `0.6` → benches
+  - `0.7` → benches
   - `0.5` → bins
   - `0.9` → wall
 - `state`: shape `(4,)`, contents:
@@ -32,8 +33,8 @@ The environment is built to support reinforcement learning, with a continuous st
   - `is_full` (0 or 1)
 
 ### Action (Discrete)
-- 8 directions: N, NE, E, SE, S, SW, W, NW  
-- Each step moves the robot 1 meter.
+- 9 directions: N, NE, E, SE, S, SW, W, NW, do nothing  
+- Each step moves the robot 1 meter, except for do nothing
 
 ## Reward Function
 
@@ -55,6 +56,7 @@ project_root/
 │
 ├── env/
 │ └── festival_env.py # Custom Gym environment
+│ └── stochastic_festival_env.py # Custom Gym environment with people
 │
 ├── agents/
 │ └── random_agent.py # Simple random agent
@@ -79,5 +81,12 @@ pip install -r requirements.txt
 ## Running the Simulation
 Run the simulation script with rendering:
 
-python simulate.py --episodes 1000 --render
+python simulate.py --episodes 1000 --render --people-env # people walking through the environment
+python simulate.py --episodes 1000 --render # no people walking through the environment
+
+Possible arguments:
+--episodes int # defines number of episodes
+--render # turns on visualisation
+--people-env # turns on people walking through the environment
+
 
