@@ -424,7 +424,12 @@ class FestivalEnv(gym.Env):
         # drop‑off: if at a bin (< 1 m)
         for bx, by in self.bins:
             if math.hypot(self.x - bx, self.y - by) <= 1.0 and self.load > 0:
+<<<<<<< Updated upstream
                 reward += self.load * self.cfg.unload_reward
+=======
+                reward += self.cfg.unload_reward
+>>>>>>> Stashed changes
+                print(f"UNLOAD: Robot at ({self.x:.2f}, {self.y:.2f}) unloaded at bin ({bx:.2f}, {by:.2f}) with load {self.load}")
                 self.load = 0
                 break
 
@@ -434,6 +439,7 @@ class FestivalEnv(gym.Env):
                 if self.trash_mask[idx] and math.hypot(self.x - tx, self.y - ty) <= 1.0:
                     self.trash_mask[idx] = False
                     self.load += 1
+                    print(f"PICKUP: Robot at ({self.x:.2f}, {self.y:.2f}) picked up trash at ({tx:.2f}, {ty:.2f}) with load {self.load}")
                     reward += self.cfg.pickup_reward
                     break
 
