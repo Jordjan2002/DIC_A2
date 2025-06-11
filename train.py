@@ -33,6 +33,12 @@ def train_ppo(
     total_steps = 0
     for episode in tqdm(range(num_episodes), desc="Training"):
         obs, _ = env.reset()
+        
+        if render and renderer:
+            renderer.reset_axes()
+            renderer.init_static(env)
+            renderer.init_trash(env)
+
         episode_reward = 0
         episode_length = 0
         episode_illegal = 0
@@ -74,6 +80,10 @@ def train_ppo(
             # Update observation
             obs = next_obs
             total_steps += 1
+
+            # Render environment if enabled
+            if render and renderer:
+                renderer.update(env, illegal=info.get("illegal", False))
             
             # Update policy if enough steps collected
             if len(agent.obs_buffer) >= update_interval:
@@ -147,7 +157,8 @@ if __name__ == "__main__":
     
     # Create environment
     cfg = EnvConfig(max_steps=500)
-    env = FestivalEnv(cfg)
+    # env = FestivalEnv(cfg)
+    env = FestivalEnv(render_mode="human")
     
     # Create agent
     agent = PPOAgent(
