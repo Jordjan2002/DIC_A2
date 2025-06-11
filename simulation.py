@@ -10,22 +10,16 @@ from matplotlib import patches
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-<<<<<<< Updated upstream
-from env import EnvConfig
+
+from env import FestivalEnv, EnvConfig
+from env.simple_festival_env import SimpleFestivalEnv
 from agents import RandomAgent
 from agents.dqn_agent import DQNAgent
 from typing import TYPE_CHECKING
 import time
 if TYPE_CHECKING:                 # only for type checkers / IDEs
-    from env import FestivalEnv
     from env.stochastic_festival_trash_env import FestivalEnvPeople
-=======
 
-from env import FestivalEnv, EnvConfig
-from agents import RandomAgent
-from agents.dqn_agent import DQNAgent
-
->>>>>>> Stashed changes
 
 def get_latest_model():
     """Get the path to the most recently trained model."""
@@ -36,10 +30,6 @@ def get_latest_model():
     if not model_files:
         return None
     return str(max(model_files, key=lambda p: p.stat().st_mtime))
-<<<<<<< Updated upstream
-
-=======
->>>>>>> Stashed changes
 
 
 class FieldRenderer:
