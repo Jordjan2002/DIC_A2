@@ -116,25 +116,26 @@ def _point_in_rot_rect(px, py, cx, cy, w, h, deg):
 
 
 @njit(fastmath=True, cache=True)
-def _sensor_fast(px, half, cell,
-                 rx, ry,                       
-                 trees, t_rad,
-                 bins_xy,                      
-                 trash_xy,
-                 benches_data,
-                 trash_mask,
-                 robot_radius,
-                 width,
-                 height,
-                 notch_x0,
-                 notch_x1,
-                 notch_y0,
-                 notch_y1): 
-    """ Generate the robots sensor image"""       
-    img = np.zeros((px, px), dtype=np.float32)
+def _sensor_multichannel(px, half, cell,
+                        rx, ry,                       
+                        trees, t_rad,
+                        bins_xy,                      
+                        trash_xy,
+                        benches_data,
+                        trash_mask,
+                        robot_radius,
+                        width,
+                        height,
+                        notch_x0,
+                        notch_x1,
+                        notch_y0,
+                        notch_y1): 
+    """ Generate multi-channel sensor image with separate channels for each object type"""       
+    # Create 4 channels: [trash, bins, trees, walls]
+    img = np.zeros((4, px, px), dtype=np.float32)
 
     # -------- draws a circle --------
-    def paint_disc(cx, cy, rad, value):
+    def paint_disc(cx, cy, rad, channel_idx):
         gx = (cx - (rx - half)) / cell
         gy = (cy - (ry - half)) / cell
         r_px = rad / cell
@@ -148,28 +149,22 @@ def _sensor_fast(px, half, cell,
             for ix in range(x0, x1 + 1):
                 dx = ix - gx
                 if dx * dx + dy2 <= r_px * r_px:
-                    img[iy, ix] = value
+                    img[channel_idx, iy, ix] = 1.0
 
-    # draw all trees (value 0.8)
-    for k in range(trees.shape[0]):
-        paint_disc(trees[k, 0], trees[k, 1], t_rad, 0.8)
-
-    # draw all bins (value 0.5)
-    for k in range(bins_xy.shape[0]):
-        paint_disc(bins_xy[k, 0], bins_xy[k, 1], 0.75, 0.5)
-
-    # draw all trash (value 1.0)
+    # Channel 0: Trash (binary)
     for k in range(trash_xy.shape[0]):
         if trash_mask[k]:
-            paint_disc(trash_xy[k, 0], trash_xy[k, 1], 0.15, 1.0)
+            paint_disc(trash_xy[k, 0], trash_xy[k, 1], 0.15, 0)
 
-    # draw all benches (value 0.7)
-    for k in range(benches_data.shape[0]):
-        x, y, bw, bh, deg = benches_data[k]
-        # paint the rectangle as a disc
-        paint_disc(x, y, math.hypot(bw / 2, bh / 2), 0.7)
+    # Channel 1: Bins (binary)
+    for k in range(bins_xy.shape[0]):
+        paint_disc(bins_xy[k, 0], bins_xy[k, 1], 0.75, 1)
 
-    # draw the borders (value 0.9)
+    # Channel 2: Trees (binary)
+    for k in range(trees.shape[0]):
+        paint_disc(trees[k, 0], trees[k, 1], t_rad, 2)
+
+    # Channel 3: Walls/borders (binary)
     for iy in range(px):
         for ix in range(px):
             # world pixel coordinate
@@ -182,7 +177,13 @@ def _sensor_fast(px, half, cell,
                 or gy < robot_radius 
                 or gy > height - robot_radius
                 or (notch_x0 <= gx <= notch_x1 and notch_y0 <= gy <= notch_y1)):
-                img[iy, ix] = 0.9
+                img[3, iy, ix] = 1.0
+
+    # Channel 3: Benches (also walls/obstacles)
+    for k in range(benches_data.shape[0]):
+        x, y, bw, bh, deg = benches_data[k]
+        # paint the rectangle as a disc in the walls channel
+        paint_disc(x, y, math.hypot(bw / 2, bh / 2), 3)
 
     return img
 
@@ -200,7 +201,7 @@ class FestivalEnv(gym.Env):
 
         # observation space
         self.observation_space = Dict(
-            image=Box(low=0.0, high=1.0, shape=(1, cfg.img_px, cfg.img_px), dtype=np.float32),
+            image=Box(low=0.0, high=1.0, shape=(4, cfg.img_px, cfg.img_px), dtype=np.float32),
             state=Box(low=0.0, high=1.0, shape=(4,), dtype=np.float32),
         )
         self.action_space = Discrete(len(DIRECTIONS))
@@ -258,7 +259,7 @@ class FestivalEnv(gym.Env):
         mask_arr  = self.trash_mask.astype(np.bool_) if (self.trash_mask is not None) else np.zeros(0, dtype=np.bool_)
 
         # generate the sensor image
-        img = _sensor_fast(px, half, cell,
+        img = _sensor_multichannel(px, half, cell,
                            self.x, self.y,
                            trees_arr, self.cfg.tree_radius,
                            bins_arr, trash_arr, benches_arr, mask_arr, 
@@ -267,7 +268,7 @@ class FestivalEnv(gym.Env):
                            self.cfg.notch_y0, self.cfg.notch_y1)
         
 
-        return img[None, ...]
+        return img
 
 
     # --------------------------------------------------------------------- #
@@ -425,7 +426,7 @@ class FestivalEnv(gym.Env):
         for bx, by in self.bins:
             if math.hypot(self.x - bx, self.y - by) <= 1.0 and self.load > 0:
                 reward += self.load * self.cfg.unload_reward
-                print(f"UNLOAD: Robot at ({self.x:.2f}, {self.y:.2f}) unloaded at bin ({bx:.2f}, {by:.2f}) with load {self.load}")
+                print(f"UNLOAD: Robot at ({self.x:.2f}, {self.y:.2f}) unloaded {self.load} items at bin ({bx:.2f}, {by:.2f})")
                 self.load = 0
                 break
 

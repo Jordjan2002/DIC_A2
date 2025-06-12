@@ -10,9 +10,8 @@ from matplotlib import patches
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-
-from env import FestivalEnv, EnvConfig
-from env.simple_festival_env import SimpleFestivalEnv
+from env import EnvConfig
+from env.festival_trash_env import FestivalEnv
 from agents import RandomAgent
 from agents.dqn_agent import DQNAgent
 from typing import TYPE_CHECKING
@@ -230,23 +229,41 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=3)
     parser.add_argument("--render", action="store_true")
+    parser.add_argument(
+        "--people-env",
+        action="store_true",
+        help="use FestivalEnvPeople (with moving people) instead of FestivalEnv"
+    )
     parser.add_argument("--model", type=str, default=None,
                        help="Path to the trained model file. If not specified, uses the most recent model.")
+    parser.add_argument("--agent", type=str, choices=["random", "dqn"], default="random",
+                       help="Type of agent to use")
     args = parser.parse_args()
 
-    # Get the model path
-    model_path = args.model if args.model else get_latest_model()
-    if not model_path:
-        print("No trained model found. Please train a model first.")
-        exit(1)
-    print(f"Using model: {model_path}")
+    # pick the environment class
+    if args.people_env:
+        from env.stochastic_festival_trash_env import FestivalEnvPeople as EnvClass
+    else:
+        EnvClass = FestivalEnv
 
-    cfg = EnvConfig()
-    env = FestivalEnv(cfg)
+    # Create environment
+    cfg = EnvConfig(max_steps=500)
+    env = EnvClass(cfg)  
     
-    # Initialize and load the trained DQN agent
-    agent = DQNAgent()
-    agent.load(model_path)
+    # Create agent based on choice
+    if args.agent == "dqn":
+        # Get the model path
+        model_path = args.model if args.model else get_latest_model()
+        if not model_path:
+            print("No trained model found. Please train a model first.")
+            exit(1)
+        print(f"Using model: {model_path}")
+        
+        # Initialize and load the trained DQN agent
+        agent = DQNAgent()
+        agent.load(model_path)
+    else:
+        agent = RandomAgent(env.action_space)
 
     renderer = (FieldRenderer(cfg, show_people=args.people_env) if args.render else None)
 
