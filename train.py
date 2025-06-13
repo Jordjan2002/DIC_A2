@@ -209,6 +209,6 @@ if __name__ == "__main__":
     
     # Plot training curves
     plot_training_curves(metrics)
-    plot_moving_average(metrics, window_size=args.window_size)
+    # plot_moving_average(metrics, window_size=args.window_size)
     
     env.close()
