@@ -31,12 +31,12 @@ class SimpleEnvConfig(EnvConfig):
     illegal_penalty: float = -1.0
     
     # Shorter episodes
-    max_steps: int = 100
+    max_steps: int = 500
 
 
 class SimpleFestivalEnv(FestivalEnv):
-    def __init__(self, seed: int | None = None):
-        super().__init__(cfg=SimpleEnvConfig(), seed=seed)
+    def __init__(self, seed: int, cfg: SimpleEnvConfig | None = None):
+        super().__init__(cfg=cfg or SimpleEnvConfig(), seed=seed)
     
     def reset(self, *, seed: int | None = None, options=None):
         if seed is not None:

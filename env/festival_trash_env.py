@@ -436,7 +436,7 @@ class FestivalEnv(gym.Env):
         self.steps += 1
         reward = self.cfg.step_penalty
         terminated = truncated = False
-        info = {"illegal": False}
+        info = {"illegal": False, "picked_up": False}
 
         dx, dy = DIRECTIONS[action]
 
@@ -466,6 +466,7 @@ class FestivalEnv(gym.Env):
                     self.trash_mask[idx] = False
                     self.load += 1
                     reward += self.cfg.pickup_reward
+                    info["picked_up"] = True
                     break
 
         # terminating conditions
@@ -474,7 +475,9 @@ class FestivalEnv(gym.Env):
         elif self.steps >= self.cfg.max_steps:
             truncated = True
 
-        return self._get_obs(), reward, terminated, truncated, info
+        num_trash_left = np.sum(self.trash_mask)
+
+        return self._get_obs(), reward, terminated, truncated, info, num_trash_left
 
     # --------------------------------------------------------------------- #
     # minimal render (text or matplotlib handled by simulate.py)

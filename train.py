@@ -7,7 +7,7 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import matplotlib.pyplot as plt
-from env import EnvConfig, FestivalEnv
+from env import EnvConfig, FestivalEnv, SimpleFestivalEnv, SimpleEnvConfig
 from agents import PPOAgent
 from simulation import run_episode, FieldRenderer
 
@@ -15,7 +15,7 @@ def train_ppo(
     env,
     agent: PPOAgent,
     num_episodes: int,
-    update_interval: int = 2048,  # Update policy every N steps
+    update_interval: int = 2000,  # Update policy every N steps
     render: bool = False,
     save_interval: int = 100,  # Save model every N episodes
     save_path: str = "ppo_model.pt"
@@ -27,6 +27,8 @@ def train_ppo(
     episode_rewards = []
     episode_lengths = []
     episode_illegals = []
+    episode_trash_picking_frequencies = []
+    episode_trash_pieces_left = []
     running_reward = 0
     
     # Training loop
@@ -42,6 +44,7 @@ def train_ppo(
         episode_reward = 0
         episode_length = 0
         episode_illegal = 0
+        episode_trash_picked = 0
         done = False
         
         # Episode loop
@@ -55,7 +58,8 @@ def train_ppo(
                 action, log_prob, value = agent.act(obs)
             
             # Take action
-            next_obs, reward, done, trunc, info = env.step(action)
+            next_obs, reward, done, trunc, info, num_trash_left = env.step(action)
+
             done = done or trunc
             
             # Store transition
@@ -71,12 +75,15 @@ def train_ppo(
             # Update metrics
             episode_reward += reward
             episode_length += 1
-            if info.get("illegal", False):
+            if info.get("illegal", True):
                 episode_illegal += 1
             
             # Update observation
             obs = next_obs
             total_steps += 1
+
+            if info.get("picked_up", True):
+                episode_trash_picked += 1
 
             # Render environment if enabled
             if render and renderer:
@@ -85,11 +92,15 @@ def train_ppo(
             # Update policy if enough steps collected
             if len(agent.obs_buffer) >= update_interval:
                 agent.update()
+
+            if done:
+                episode_trash_pieces_left.append(num_trash_left)
         
         # Update metrics
         episode_rewards.append(episode_reward)
         episode_lengths.append(episode_length)
         episode_illegals.append(episode_illegal)
+        episode_trash_picking_frequencies.append(episode_trash_picked / episode_length)
         running_reward = 0.95 * running_reward + 0.05 * episode_reward
         
         # Save model periodically
@@ -105,17 +116,21 @@ def train_ppo(
             print(f"Episode reward: {episode_reward:.2f}")
             print(f"Episode length: {episode_length}")
             print(f"Illegal moves: {episode_illegal}")
+            print(f"Trash picking frequency: {episode_trash_picked / episode_length:.2f}")
+            print(f"Trash pieces left: {num_trash_left}")
     
     return {
         'episode_rewards': episode_rewards,
         'episode_lengths': episode_lengths,
         'episode_illegals': episode_illegals,
-        'running_reward': running_reward
+        'running_reward': running_reward,
+        'episode_trash_picking_frequencies': episode_trash_picking_frequencies,
+        'episode_trash_pieces_left': episode_trash_pieces_left,
     }
 
 def plot_training_curves(metrics):
     """Plot training metrics."""
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
+    fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(10, 12))
     
     # Plot rewards
     ax1.plot(metrics['episode_rewards'], label='Episode Reward')
@@ -137,33 +152,73 @@ def plot_training_curves(metrics):
     ax3.set_xlabel('Episode')
     ax3.set_ylabel('Count')
     ax3.legend()
+
+    # Plot trash picking frequency
+    ax4.plot(metrics['episode_trash_picking_frequencies'], label='Trash Picking Frequency')
+    ax4.set_ylabel('Trash Picking Frequency')
+    ax4.set_xlabel('Episode')
+    ax4.legend(loc='upper right')
+    ax4.set_title('Trash Picking Frequency per Episode')
+
+    # Plot trash pieces left
+    ax5.plot(metrics['episode_trash_pieces_left'], label='Trash Pieces Left')
+    ax5.set_ylabel('Trash Pieces Left')
+    ax5.set_xlabel('Episode')
+    ax5.legend(loc='upper right')
+    ax5.set_title('Trash Pieces Left at Episode End')
+
+
+
     
     plt.tight_layout()
     plt.savefig('training_curves.png')
     plt.close()
 
-def plot_moving_average(metrics, window_size=100):
-    """Plot moving average of rewards."""
-    rewards = np.array(metrics['episode_rewards'])
-    moving_avg = np.convolve(rewards, np.ones(window_size)/window_size, mode='valid')
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(rewards, alpha=0.3, label='Raw Rewards')
-    plt.plot(range(window_size-1, len(rewards)), moving_avg, label=f'{window_size}-Episode Moving Average')
-    plt.title('Reward Moving Average')
-    plt.xlabel('Episode')
-    plt.ylabel('Reward')
-    plt.legend()
-    plt.grid(True)
+def plot_moving_averages(metrics, window_size=100):
+    """Plot moving averages of training metrics."""
+    def moving_average(data, window):
+        return np.convolve(data, np.ones(window) / window, mode='valid')
+
+    # Plot moving averages in separate subplots
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 10))
+
+    # Reward moving average
+    ax1.plot(moving_average(metrics['episode_rewards'], window_size), label='Reward MA')
+    ax1.set_title('Reward Moving Average')
+    ax1.set_xlabel('Episode')
+    ax1.set_ylabel('Reward')
+    ax1.legend()
+
+    # Illegal moves moving average
+    ax2.plot(moving_average(metrics['episode_illegals'], window_size), label='Illegal Moves MA')
+    ax2.set_title('Illegal Moves Moving Average')
+    ax2.set_xlabel('Episode')
+    ax2.set_ylabel('Illegal Moves')
+    ax2.legend()
+
+    # Trash picking frequency moving average
+    ax3.plot(moving_average(metrics['episode_trash_picking_frequencies'], window_size), label='Trash Picking Frequency MA')
+    ax3.set_title('Trash Picking Frequency Moving Average')
+    ax3.set_xlabel('Episode')
+    ax3.set_ylabel('Frequency')
+    ax3.legend()
+
+    # Trash pieces left moving average
+    ax4.plot(moving_average(metrics['episode_trash_pieces_left'], window_size), label='Trash Pieces Left MA')
+    ax4.set_title('Trash Pieces Left Moving Average')
+    ax4.set_xlabel('Episode')
+    ax4.set_ylabel('Pieces Left')
+    ax4.legend()
+
     plt.tight_layout()
-    plt.savefig('moving_average.png')
+    plt.savefig('moving_averages.png')
     plt.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=1000)
     parser.add_argument("--render", action="store_true")
-    parser.add_argument("--update-interval", type=int, default=2048)
+    parser.add_argument("--update-interval", type=int, default=400)
     parser.add_argument("--save-interval", type=int, default=100)
     parser.add_argument("--save-path", type=str, default="ppo_model.pt")
     parser.add_argument("--load-path", type=str, default=None)
@@ -171,8 +226,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Create environment
-    cfg = EnvConfig(max_steps=500)
-    env = FestivalEnv(cfg)
+    cfg = SimpleEnvConfig(max_steps=150)  # Use SimpleEnvConfig for a simpler environment
+    env = SimpleFestivalEnv(seed=42, cfg=cfg)
     
     # Create agent
     agent = PPOAgent(
@@ -180,7 +235,7 @@ if __name__ == "__main__":
         img_channels=1,  # 1 channel for the sensor image
         img_size=64,     # 64x64 image size
         state_dim=4,     # 4-dimensional state vector
-        hidden_dim=64,
+        hidden_dim=12,
         lr=3e-4,
         gamma=0.99,
         gae_lambda=0.95,
@@ -204,11 +259,11 @@ if __name__ == "__main__":
         update_interval=args.update_interval,
         render=args.render,
         save_interval=args.save_interval,
-        save_path=args.save_path
+        save_path=args.save_path,
     )
     
     # Plot training curves
     plot_training_curves(metrics)
-    # plot_moving_average(metrics, window_size=args.window_size)
+    plot_moving_averages(metrics, window_size=40)
     
     env.close()

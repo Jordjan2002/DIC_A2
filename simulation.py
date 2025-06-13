@@ -200,8 +200,8 @@ def run_episode(env: FestivalEnv, agent, renderer: FieldRenderer | None = None):
     # Main episode loop
     done = False
     while not done:
-        action = agent.act(obs)
-        obs, reward, done, trunc, info = env.step(action)
+        action, _ , _ = agent.act(obs)
+        obs, reward, done, trunc, info, num_trash_left = env.step(action)
         done = done or trunc  
         total_reward += reward
         if info.get("illegal", False):
