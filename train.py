@@ -52,22 +52,19 @@ def train_ppo(
                     'image': torch.FloatTensor(obs['image']).unsqueeze(0).to(agent.device),
                     'state': torch.FloatTensor(obs['state']).unsqueeze(0).to(agent.device)
                 }
-                action_probs, value = agent.actor_critic(obs_tensor)
-                dist = torch.distributions.Categorical(action_probs)
-                action = dist.sample()
-                log_prob = dist.log_prob(action)
+                action, log_prob, value = agent.act(obs)
             
             # Take action
-            next_obs, reward, done, trunc, info = env.step(action.item())
+            next_obs, reward, done, trunc, info = env.step(action)
             done = done or trunc
             
             # Store transition
             agent.store_transition(
                 obs=obs,
-                action=action.item(),
+                action=action,
                 reward=reward,
-                value=value.item(),
-                log_prob=log_prob.item(),
+                value=value,
+                log_prob=log_prob,
                 done=done
             )
             
@@ -145,6 +142,23 @@ def plot_training_curves(metrics):
     plt.savefig('training_curves.png')
     plt.close()
 
+def plot_moving_average(metrics, window_size=100):
+    """Plot moving average of rewards."""
+    rewards = np.array(metrics['episode_rewards'])
+    moving_avg = np.convolve(rewards, np.ones(window_size)/window_size, mode='valid')
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(rewards, alpha=0.3, label='Raw Rewards')
+    plt.plot(range(window_size-1, len(rewards)), moving_avg, label=f'{window_size}-Episode Moving Average')
+    plt.title('Reward Moving Average')
+    plt.xlabel('Episode')
+    plt.ylabel('Reward')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('moving_average.png')
+    plt.close()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=1000)
@@ -153,11 +167,11 @@ if __name__ == "__main__":
     parser.add_argument("--save-interval", type=int, default=100)
     parser.add_argument("--save-path", type=str, default="ppo_model.pt")
     parser.add_argument("--load-path", type=str, default=None)
+    parser.add_argument("--window-size", type=int, default=100, help="Window size for moving average")
     args = parser.parse_args()
     
     # Create environment
     cfg = EnvConfig(max_steps=500)
-    # env = FestivalEnv(cfg)
     env = FestivalEnv(render_mode="human")
     
     # Create agent
@@ -172,7 +186,7 @@ if __name__ == "__main__":
         gae_lambda=0.95,
         clip_ratio=0.2,
         train_iters=10,
-        batch_size=64
+        batch_size=32
     )
     
     # Load pretrained model if specified
@@ -195,5 +209,6 @@ if __name__ == "__main__":
     
     # Plot training curves
     plot_training_curves(metrics)
+    plot_moving_average(metrics, window_size=args.window_size)
     
     env.close()
