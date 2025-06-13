@@ -172,7 +172,7 @@ if __name__ == "__main__":
     
     # Create environment
     cfg = EnvConfig(max_steps=500)
-    env = FestivalEnv(render_mode="human")
+    env = FestivalEnv(cfg)
     
     # Create agent
     agent = PPOAgent(
