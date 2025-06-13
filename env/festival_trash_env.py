@@ -34,6 +34,7 @@ from gymnasium.spaces import Box, Dict, Discrete
 import numpy as np
 from numba import njit, prange
 import sys
+import random
 np.set_printoptions(threshold=sys.maxsize)
 
 # --------------------------------------------------------------------------- #
@@ -55,7 +56,7 @@ class EnvConfig:
     trash_radius: float = 0.15
 
     # entities
-    max_trash: int = 200
+    max_trash: int = 200  # amount of trash in the field
     max_load: int = 20
 
     # sensor crop (↑ resolution bumped to 64x64)
@@ -76,6 +77,12 @@ class EnvConfig:
     bench_width: float = 2.0
     bench_height: float = 1.5
 
+    # static trash and benches
+    static_benches: bool = True
+    static_trash: bool = True   
+
+    # Experiment
+    bench_experiment = True # Cannot be True if static_benches is False
 
 # mapping action index → (dx, dy)
 DIRECTIONS = [
@@ -87,7 +94,7 @@ DIRECTIONS = [
     (-1, 1),  # SW
     (-1, 0),  # W
     (-1, -1), # NW
-    (0,   0)  # stay in place  
+    (0, 0)  # stay in place  
 ]
 
 
@@ -169,22 +176,31 @@ def _sensor_fast(px, half, cell,
         # paint the rectangle as a disc
         paint_disc(x, y, math.hypot(bw / 2, bh / 2), 0.7)
 
+    near_bottom = height - ry <= 8
+    near_top = ry <= 8
+    near_right = width - rx <= 8
+    near_left = rx <= 8
+    near_notch_top = abs(notch_y1 - ry) <= 8
+    near_notch_bottom = abs(notch_y0 - ry) <= 8
+    near_notch_left = abs(notch_x0 - rx) <= 8
+
     # draw the borders (value 0.9)
-    for iy in range(px):
-        for ix in range(px):
-            # world pixel coordinate
-            gx = rx - half + ix * cell
-            gy = ry - half + iy * cell
+    if near_bottom or near_left or near_top or near_right or near_notch_top or near_notch_bottom or near_notch_left:
+        for iy in range(px):
+            for ix in range(px):
+                # world pixel coordinate
+                gx = rx - half + ix * cell
+                gy = ry - half + iy * cell
 
-            # check if outside the field or inside the notch
-            if (gx < robot_radius 
-                or gx > width  - robot_radius 
-                or gy < robot_radius 
-                or gy > height - robot_radius
-                or (notch_x0 <= gx <= notch_x1 and notch_y0 <= gy <= notch_y1)):
-                img[iy, ix] = 0.9
-
+                # check if outside the field or inside the notch
+                if (gx < robot_radius 
+                    or gx > width  - robot_radius 
+                    or gy < robot_radius 
+                    or gy > height - robot_radius
+                    or (notch_x0 <= gx <= notch_x1 and notch_y0 <= gy <= notch_y1)):
+                    img[iy, ix] = 0.9
     return img
+
 
 
 
@@ -213,6 +229,11 @@ class FestivalEnv(gym.Env):
         self.rect_obs: list[tuple[float,float,float,float,float]] = []  # (cx,cy,w,h,deg)
         self.steps = 0
 
+        self.create_bins()
+        self.trees = [(20, 138), (1, 103.5), (4, 29), (22, 115), (30, 87), (30, 37), (22, 3)]
+        self.create_trash()
+        self.create_benches()
+         
     # --------------------------------------------------------------------- #
     # geometry helpers
     # --------------------------------------------------------------------- #
@@ -269,56 +290,11 @@ class FestivalEnv(gym.Env):
 
         return img[None, ...]
 
-
     # --------------------------------------------------------------------- #
-    # gym API
+    # Bench and Trash builders
     # --------------------------------------------------------------------- #
-    def reset(self, *, seed: int | None = None, options=None):
-        if seed is not None:
-            self.rng = np.random.default_rng(seed)
 
-        # ----------------------------------
-        # 1. static trees – rough positions from aerial photo (manually measured)
-        # ----------------------------------
-        self.trees = [(20, 138), (1, 103.5), (4, 29), (22, 115), (30, 87), (30, 37), (22, 3)]
-
-        # ----------------------------------
-        # 2. bins – four per long side, spaced evenly, flush to the wall
-        # ----------------------------------
-        self.bins = []
-        x_left  = 2.0                     # distance to left side
-        x_right = self.cfg.width - 2.0    # distance to right side
-
-        y_positions = [20, 40, 60, 80, 100, 120] # positions on the y axis
-
-        for y in y_positions:
-            self.bins.append((x_left, y))
-            self.bins.append((x_right, y))
-
-        # ----------------------------------
-        # 3. scatter trash uniformly
-        # ----------------------------------
-        self.trash = []
-        trials = 0
-        while len(self.trash) < self.cfg.max_trash and trials < self.cfg.max_trash * 20:
-            x = self.rng.uniform(0, self.cfg.width)
-            y = self.rng.uniform(0, self.cfg.height)
-            trials += 1
-            if not self._inside_field(x, y):
-                continue
-            if any(math.hypot(x - tx, y - ty) < self.cfg.tree_radius + self.cfg.trash_radius for tx, ty in self.trees):
-                continue
-            if any(_point_in_rot_rect( x, y, bx, by, bw, bh, deg )
-                    for bx, by, bw, bh, deg in self.rect_obs):
-                continue 
-            self.trash.append((x, y))
-        self.trash_mask = np.ones(len(self.trash), dtype=bool)
-
-        # ----------------------------------
-        # 4. create yellow benches
-        # ----------------------------------
-        self.rect_obs = []
-
+    def create_benches(self):
         attempts = 0
         max_attempts = 1000
         benches_created = 0
@@ -380,13 +356,68 @@ class FestivalEnv(gym.Env):
         self.trash = new_trash
         self.trash_mask = np.array(new_mask, dtype=bool)
 
+    def create_trash(self):
+        self.trash = []
+        trials = 0
+        while len(self.trash) < self.cfg.max_trash and trials < self.cfg.max_trash * 20:
+            x = self.rng.uniform(0, self.cfg.width)
+            y = self.rng.uniform(0, self.cfg.height)
+            trials += 1
+            if not self._inside_field(x, y):
+                continue
+            if any(math.hypot(x - tx, y - ty) < self.cfg.tree_radius + self.cfg.trash_radius for tx, ty in self.trees):
+                continue
+            if any(_point_in_rot_rect( x, y, bx, by, bw, bh, deg )
+                    for bx, by, bw, bh, deg in self.rect_obs):
+                continue 
+            self.trash.append((x, y))
+        self.trash_mask = np.ones(len(self.trash), dtype=bool)
+
+    def create_bins(self):
+        self.bins = []
+        x_left  = 2.0                     # distance to left side
+        x_right = self.cfg.width - 2.0    # distance to right side
+
+        y_positions = [20, 40, 60, 80, 100, 120] # positions on the y axis
+
+        for y in y_positions:
+            self.bins.append((x_left, y))
+            self.bins.append((x_right, y))
+
+
+    # --------------------------------------------------------------------- #
+    # gym API
+    # --------------------------------------------------------------------- #
+    def reset(self, *, seed: int | None = None, options=None):
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
         # ----------------------------------
-        # 5. robot init position (centre)
+        # 1. create yellow benches and trash if not static
+        # ----------------------------------
+        if self.cfg.static_benches == False:
+            self.rect_obs = []
+            self.create_benches() 
+
+        if self.cfg.static_trash == False:
+            self.create_trash()
+
+        # ----------------------------------
+        # 2. robot init position (centre)
         # ----------------------------------
         self.x = self.cfg.width / 2
         self.y = 35.0
         self.load = 0
         self.steps = 0
+
+        # ----------------------------------
+        # 3. randomly change the position of one bench (EXPERIMENT)
+        # ----------------------------------
+        if self.cfg.bench_experiment == True:
+            random_index = random.randrange(len(self.rect_obs))
+            popped_item = self.rect_obs.pop(random_index)
+            self.cfg.bench_count = 1
+            self.create_benches()
+
 
         return self._get_obs(), {}
 
