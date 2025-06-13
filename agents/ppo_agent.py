@@ -119,12 +119,12 @@ class PPOAgent:
                 'state': torch.FloatTensor(obs['state']).unsqueeze(0).to(self.device)
             }
             
-            action_probs, _ = self.actor_critic(obs_tensor)
+            action_probs, value = self.actor_critic(obs_tensor)
             dist = Categorical(action_probs)
             action = dist.sample()
             log_prob = dist.log_prob(action)
             
-            return action.item()
+            return action.item(), log_prob.item(), value.item()
     
     def compute_gae(
         self,
@@ -215,7 +215,11 @@ class PPOAgent:
                 )
                 policy_loss = torch.max(policy_loss1, policy_loss2).mean()
                 
-                value_loss = 0.5 * ((returns_batch - values.squeeze()) ** 2).mean()
+                # Value loss with clipping
+                value_pred_clipped = old_value_batch + (values.squeeze() - old_value_batch).clamp(-self.clip_ratio, self.clip_ratio)
+                value_loss1 = (returns_batch - values.squeeze()).pow(2)
+                value_loss2 = (returns_batch - value_pred_clipped).pow(2)
+                value_loss = 0.5 * torch.max(value_loss1, value_loss2).mean()
                 
                 # Total loss
                 loss = policy_loss + value_loss - 0.01 * entropy
@@ -223,6 +227,7 @@ class PPOAgent:
                 # Optimize
                 self.optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor_critic.parameters(), 0.5)
                 self.optimizer.step()
         
         # Clear buffers
