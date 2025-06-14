@@ -52,8 +52,8 @@ def train_ppo(
             # Get action and value
             with torch.no_grad():
                 obs_tensor = {
-                    'image': torch.FloatTensor(obs['image']).unsqueeze(0).to(agent.device),
-                    'state': torch.FloatTensor(obs['state']).unsqueeze(0).to(agent.device)
+                    'image': torch.FloatTensor(obs['image']).to(agent.device),	
+                    'state': torch.FloatTensor(obs['state']).to(agent.device)
                 }
                 action, log_prob, value = agent.act(obs)
             
@@ -118,6 +118,15 @@ def train_ppo(
             print(f"Illegal moves: {episode_illegal}")
             print(f"Trash picking frequency: {episode_trash_picked / episode_length:.2f}")
             print(f"Trash pieces left: {num_trash_left}")
+
+            #Save moving averages
+            if episode >= 100:
+                plot_moving_averages({
+                    'episode_rewards': episode_rewards,
+                    'episode_illegals': episode_illegals,
+                    'episode_trash_picking_frequencies': episode_trash_picking_frequencies,
+                    'episode_trash_pieces_left': episode_trash_pieces_left
+                }, window_size=100)
     
     return {
         'episode_rewards': episode_rewards,
@@ -218,21 +227,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=1000)
     parser.add_argument("--render", action="store_true")
-    parser.add_argument("--update-interval", type=int, default=400)
+    parser.add_argument("--update-interval", type=int, default=1200)
     parser.add_argument("--save-interval", type=int, default=100)
     parser.add_argument("--save-path", type=str, default="ppo_model.pt")
     parser.add_argument("--load-path", type=str, default=None)
-    parser.add_argument("--window-size", type=int, default=100, help="Window size for moving average")
+    parser.add_argument("--window-size", type=int, default=80, help="Window size for moving average")
     args = parser.parse_args()
     
     # Create environment
-    cfg = SimpleEnvConfig(max_steps=150)  # Use SimpleEnvConfig for a simpler environment
-    env = SimpleFestivalEnv(seed=42, cfg=cfg)
+    cfg = EnvConfig(max_steps=400)  # Use SimpleEnvConfig for a simpler environment
+    env = FestivalEnv(seed=42, cfg=cfg)
     
     # Create agent
     agent = PPOAgent(
         action_space=env.action_space,
-        img_channels=1,  # 1 channel for the sensor image
+        img_channels=3,  # 1 channel for the sensor image
         img_size=64,     # 64x64 image size
         state_dim=4,     # 4-dimensional state vector
         hidden_dim=12,
@@ -241,7 +250,7 @@ if __name__ == "__main__":
         gae_lambda=0.95,
         clip_ratio=0.2,
         train_iters=10,
-        batch_size=32
+        batch_size=64,
     )
     
     # Load pretrained model if specified
@@ -264,6 +273,6 @@ if __name__ == "__main__":
     
     # Plot training curves
     plot_training_curves(metrics)
-    plot_moving_averages(metrics, window_size=40)
+    plot_moving_averages(metrics, window_size=args.window_size)
     
     env.close()

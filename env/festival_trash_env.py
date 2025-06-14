@@ -136,12 +136,18 @@ def _sensor_fast(px, half, cell,
                  notch_x0,
                  notch_x1,
                  notch_y0,
-                 notch_y1): 
-    """ Generate the robots sensor image"""       
-    img = np.zeros((px, px), dtype=np.float32)
+                 notch_y1):
+    """ Generate the robots sensor image as 3-channel image where each channel can represent different objects"""
+    
+    # Configuration - set which channel represents which objects
+    OBSTACLE_CHANNEL = 0  # trees, benches, borders
+    BIN_CHANNEL = 1       # bins
+    TRASH_CHANNEL = 2     # trash
+    
+    img = np.zeros((px, px, 3), dtype=np.float32)
 
     # -------- draws a circle --------
-    def paint_disc(cx, cy, rad, value):
+    def paint_disc(cx, cy, rad, channel):
         gx = (cx - (rx - half)) / cell
         gy = (cy - (ry - half)) / cell
         r_px = rad / cell
@@ -155,26 +161,26 @@ def _sensor_fast(px, half, cell,
             for ix in range(x0, x1 + 1):
                 dx = ix - gx
                 if dx * dx + dy2 <= r_px * r_px:
-                    img[iy, ix] = value
+                    img[iy, ix, channel] = 1.0
 
-    # draw all trees (value 0.8)
+    # draw all trees (in obstacle channel)
     for k in range(trees.shape[0]):
-        paint_disc(trees[k, 0], trees[k, 1], t_rad, 0.8)
+        paint_disc(trees[k, 0], trees[k, 1], t_rad, OBSTACLE_CHANNEL)
 
-    # draw all bins (value 0.5)
+    # draw all bins (in bin channel)
     for k in range(bins_xy.shape[0]):
-        paint_disc(bins_xy[k, 0], bins_xy[k, 1], 0.75, 0.5)
+        paint_disc(bins_xy[k, 0], bins_xy[k, 1], 0.75, BIN_CHANNEL)
 
-    # draw all trash (value 1.0)
+    # draw all trash (in trash channel)
     for k in range(trash_xy.shape[0]):
         if trash_mask[k]:
-            paint_disc(trash_xy[k, 0], trash_xy[k, 1], 0.15, 1.0)
+            paint_disc(trash_xy[k, 0], trash_xy[k, 1], 0.15, TRASH_CHANNEL)
 
-    # draw all benches (value 0.7)
+    # draw all benches (in obstacle channel)
     for k in range(benches_data.shape[0]):
         x, y, bw, bh, deg = benches_data[k]
         # paint the rectangle as a disc
-        paint_disc(x, y, math.hypot(bw / 2, bh / 2), 0.7)
+        paint_disc(x, y, math.hypot(bw / 2, bh / 2), OBSTACLE_CHANNEL)
 
     near_bottom = height - ry <= 8
     near_top = ry <= 8
@@ -184,7 +190,7 @@ def _sensor_fast(px, half, cell,
     near_notch_bottom = abs(notch_y0 - ry) <= 8
     near_notch_left = abs(notch_x0 - rx) <= 8
 
-    # draw the borders (value 0.9)
+    # draw the borders (in obstacle channel)
     if near_bottom or near_left or near_top or near_right or near_notch_top or near_notch_bottom or near_notch_left:
         for iy in range(px):
             for ix in range(px):
@@ -194,11 +200,11 @@ def _sensor_fast(px, half, cell,
 
                 # check if outside the field or inside the notch
                 if (gx < robot_radius 
-                    or gx > width  - robot_radius 
+                    or gx > width - robot_radius 
                     or gy < robot_radius 
                     or gy > height - robot_radius
                     or (notch_x0 <= gx <= notch_x1 and notch_y0 <= gy <= notch_y1)):
-                    img[iy, ix] = 0.9
+                    img[iy, ix, OBSTACLE_CHANNEL] = 1.0
     return img
 
 
@@ -288,7 +294,7 @@ class FestivalEnv(gym.Env):
                            self.cfg.notch_y0, self.cfg.notch_y1)
         
 
-        return img[None, ...]
+        return img
 
     # --------------------------------------------------------------------- #
     # Bench and Trash builders

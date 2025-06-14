@@ -53,7 +53,7 @@ class ActorCritic(nn.Module):
         
     def forward(self, obs: Dict[str, torch.Tensor]):
         # Process image through CNN
-        img_features = self.cnn(obs['image'])
+        img_features = self.cnn(obs['image'].permute(0, 3, 1, 2))  # Change to (batch_size, channels, height, width)
         
         # Process image features through dedicated pathway
         img_processed = self.image_processor(img_features)
@@ -87,7 +87,7 @@ class PPOAgent:
         clip_ratio: float = 0.2,
         target_kl: float = 0.015,
         train_iters: int = 10,
-        batch_size: int = 64,
+        batch_size: int = 128,
         seed: int = None
     ):
         self.action_space = action_space

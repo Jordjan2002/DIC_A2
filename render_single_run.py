@@ -10,7 +10,7 @@ if __name__ == "__main__":
     # Load the trained model
     agent = PPOAgent(
         action_space=env.action_space,
-        img_channels=1,  # 1 channel for the sensor image
+        img_channels=3,  # 1 channel for the sensor image
         img_size=64,     # 64x64 image size
         state_dim=4,     # 4-dimensional state vector
         hidden_dim=12,
