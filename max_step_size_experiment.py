@@ -8,7 +8,7 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import matplotlib.pyplot as plt
-from env import SimpleFestivalEnv, SimpleEnvConfig
+from env import FestivalEnv, EnvConfig
 from agents import PPOAgent
 from simulation import FieldRenderer
 from collections import defaultdict
@@ -36,7 +36,7 @@ def train_multiple_ppo(
         group_envs = []
         group_agents = []
         for agent_idx in range(agents_per_config):
-            env = SimpleFestivalEnv(seed=42 + config_idx * 100 + agent_idx, cfg=cfg)
+            env = FestivalEnv(seed=42 + config_idx * 100 + agent_idx, cfg=cfg)
             agent = PPOAgent(
                 action_space=env.action_space,
                 img_channels=3,
@@ -67,6 +67,10 @@ def train_multiple_ppo(
     for episode in tqdm(range(num_episodes), desc="Training"):
         # Initialize all environments
         observations = [env.reset()[0] for env in all_envs]
+        #Reset trash in all environments
+        for env in all_envs:
+            env.create_trash()
+        # Reset done flags
         dones = [False] * len(all_agents)
         
         # Episode-specific metrics
@@ -333,7 +337,7 @@ def plot_moving_averages(metrics, window_size=100):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", type=int, default=1000)
+    parser.add_argument("--episodes", type=int, default=1000000)
     parser.add_argument("--agents-per-config", type=int, default=3)
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--update-interval", type=int, default=1200)
@@ -344,11 +348,10 @@ if __name__ == "__main__":
     
     # Create different environment configurations
     env_configs = [
-        SimpleEnvConfig(max_steps=2),
-        SimpleEnvConfig(max_steps=3),
-        SimpleEnvConfig(max_steps=4),
-        SimpleEnvConfig(max_steps=5),
-        SimpleEnvConfig(max_steps=6)
+        EnvConfig(max_steps=100),
+        EnvConfig(max_steps=400),
+        EnvConfig(max_steps=1000),
+        EnvConfig(max_steps=4000),
     ]
     
     # Train agents
