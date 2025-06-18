@@ -11,24 +11,34 @@ class ActorCritic(nn.Module):
     def __init__(self, img_channels: int, img_size: int, state_dim: int, hidden_dim: int, output_dim: int):
         super(ActorCritic, self).__init__()
         
-        # CNN for processing image
+        # CNN for processing image (unchanged)
         self.cnn = nn.Sequential(
-            nn.Conv2d(img_channels, 32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(img_channels, 16, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Downsamples from 64x64 -> 32x32
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Downsamples from 32x32 -> 16x16
             nn.Flatten()
         )
         
-        # Calculate CNN output size
-        cnn_output_size = 64 * img_size * img_size
+        cnn_output_size = 32 * (img_size // 4) * (img_size // 4)
         
-        # Shared feature layers
-        self.shared = nn.Sequential(
-            nn.Linear(cnn_output_size + state_dim, hidden_dim),
+        # Separate processing pathways
+        self.image_processor = nn.Sequential(
+            nn.Linear(cnn_output_size, hidden_dim),
             nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU()
+        )
+        
+        self.state_processor = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU()
+        )
+        
+        # Combined feature processor
+        self.combined_processor = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU()
         )
@@ -44,13 +54,19 @@ class ActorCritic(nn.Module):
         
     def forward(self, obs: Dict[str, torch.Tensor]):
         # Process image through CNN
-        img_features = self.cnn(obs['image'])
+        img_features = self.cnn(obs['image'])  # Change to (batch_size, channels, height, width)
         
-        # Concatenate image features with state
-        combined = torch.cat([img_features, obs['state']], dim=1)
+        # Process image features through dedicated pathway
+        img_processed = self.image_processor(img_features)
         
-        # Process through shared layers
-        features = self.shared(combined)
+        # Process state vector through separate pathway
+        state_processed = self.state_processor(obs['state'])
+        
+        # Combine using element-wise addition
+        combined = img_processed + state_processed
+        
+        # Further process combined features
+        features = self.combined_processor(combined)
         
         # Get action probabilities and state value
         action_probs = self.actor(features)
@@ -72,7 +88,7 @@ class PPOAgent:
         clip_ratio: float = 0.2,
         target_kl: float = 0.015,
         train_iters: int = 10,
-        batch_size: int = 64,
+        batch_size: int = 128,
         seed: int = None
     ):
         self.action_space = action_space
@@ -118,6 +134,8 @@ class PPOAgent:
                 'image': torch.FloatTensor(obs['image']).unsqueeze(0).to(self.device),
                 'state': torch.FloatTensor(obs['state']).unsqueeze(0).to(self.device)
             }
+
+
             
             action_probs, value = self.actor_critic(obs_tensor)
             dist = Categorical(action_probs)
@@ -149,6 +167,19 @@ class PPOAgent:
             returns.insert(0, gae + values[t])
             
         return advantages, returns
+    
+    def load(self, model_file: str):
+        checkpoint = torch.load(model_file, map_location=self.device)
+        self.actor_critic.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.actor_critic.to(self.device)
+        self.obs_buffer = []
+        self.action_buffer = []
+        self.reward_buffer = []
+        self.value_buffer = []
+        self.log_prob_buffer = []
+        self.done_buffer = []
+        return self
     
     def update(self):
         # Convert buffers to tensors
