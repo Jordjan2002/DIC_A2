@@ -6,7 +6,7 @@ from env.festival_trash_env import FestivalEnv, EnvConfig
 from simulation import run_episode, FieldRenderer
 
 if __name__ == "__main__":
-    env = FestivalEnv(seed=42, cfg=EnvConfig(max_steps=50000))
+    env = FestivalEnv(seed=42, cfg=EnvConfig(max_steps=1000))
     renderer = FieldRenderer(env.cfg, show_people=False)
     # Load the trained model
     agent = PPOAgent(
@@ -22,7 +22,7 @@ if __name__ == "__main__":
         train_iters=10,
         batch_size=32
     )
-    agent.load("models/ppo_steps4000_run0.pt")  # Load the model from the specified path
+    agent.load("models/ppo_steps1000_run1.pt")  # Load the model from the specified path
     renderer.reset_axes()
     renderer.init_static(env)
     renderer.init_trash(env)

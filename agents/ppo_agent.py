@@ -15,13 +15,14 @@ class ActorCritic(nn.Module):
         self.cnn = nn.Sequential(
             nn.Conv2d(img_channels, 16, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Downsamples from 64x64 -> 32x32
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Downsamples from 32x32 -> 16x16
             nn.Flatten()
         )
         
-        # Calculate CNN output size
-        cnn_output_size = 32 * img_size * img_size
+        cnn_output_size = 32 * (img_size // 4) * (img_size // 4)
         
         # Separate processing pathways
         self.image_processor = nn.Sequential(
@@ -53,7 +54,7 @@ class ActorCritic(nn.Module):
         
     def forward(self, obs: Dict[str, torch.Tensor]):
         # Process image through CNN
-        img_features = self.cnn(obs['image'].permute(0, 3, 1, 2))  # Change to (batch_size, channels, height, width)
+        img_features = self.cnn(obs['image'])  # Change to (batch_size, channels, height, width)
         
         # Process image features through dedicated pathway
         img_processed = self.image_processor(img_features)
@@ -77,7 +78,7 @@ class PPOAgent:
     def __init__(
         self,
         action_space,
-        img_channels: int = 3,
+        img_channels: int = 1,
         img_size: int = 64,
         state_dim: int = 4,
         hidden_dim: int = 64,
