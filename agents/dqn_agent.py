@@ -43,8 +43,12 @@ class DQN(nn.Module):
             nn.ReLU(),
             nn.Linear(64, n_actions)
         )
+
         
     def forward(self, image, state):
+        #image = image.to(self.device)
+        #state = state.to(self.device)
+
         # Process image
         conv_out = self.conv(image)
         
@@ -71,7 +75,10 @@ class DQNAgent(BaseAgent):
         batch_size: int = 128,
         target_update: int = 500,
         normalize_rewards: bool = True,
-        seed: int | None = None
+        seed: int | None = None,
+        optimizer: str = "adam",
+        embedding_dim: int = 64,
+        margin: float = 1.0
     ):
         self.n_actions = n_actions
         self.alpha = alpha
@@ -83,6 +90,8 @@ class DQNAgent(BaseAgent):
         self.batch_size = batch_size
         self.target_update = target_update
         self.normalize_rewards = normalize_rewards
+        self.embedding_dim = embedding_dim
+        self.margin = margin
         
         # Reward normalization statistics
         self.reward_sum = 0.0
@@ -102,10 +111,20 @@ class DQNAgent(BaseAgent):
         self.policy_net = DQN(n_actions).to(self.device)
         self.target_net = DQN(n_actions).to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        
+
+        # Store optimizer name for saving
+        self.optimizer_name = optimizer.lower()
+
         # Initialize optimizer
-        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=alpha)
-        
+        if self.optimizer_name == "adam":
+            self.optimizer = optim.Adam(self.policy_net.parameters(), lr=alpha)
+        elif self.optimizer_name == "adamw":
+            self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=alpha)
+        elif self.optimizer_name == "sgd":
+            self.optimizer = optim.SGD(self.policy_net.parameters(), lr=alpha, momentum=0.9)
+        else:
+            raise ValueError(f"Unsupported optimizer: {optimizer}")
+
         # Initialize memory
         self.memory = deque(maxlen=memory_size)
         
@@ -174,12 +193,16 @@ class DQNAgent(BaseAgent):
         """Train on a batch of experiences."""
         # Sample batch
         batch = random.sample(self.memory, self.batch_size)
+        #batch = np.random.choice(self.memory, self.batch_size, replace=False)
         
         # Prepare batch data
         images = torch.FloatTensor(np.array([x[0]["image"] for x in batch])).to(self.device)
         states = torch.FloatTensor(np.array([x[0]["state"] for x in batch])).to(self.device)
         rewards = torch.FloatTensor([x[2] for x in batch]).to(self.device)
         actions = torch.LongTensor([x[1] for x in batch]).to(self.device)
+
+        #print("Policy net device:", next(self.policy_net.parameters()).device)
+        #print("Images device:", images.device)
         
         # Get current Q-values
         current_q_values = self.policy_net(images, states).gather(1, actions.unsqueeze(1))
@@ -187,7 +210,11 @@ class DQNAgent(BaseAgent):
         
         # Get next Q-values from target network
         with torch.no_grad():
-            next_q_values = self.target_net(images, states).max(1)[0]
+            #next_q_values = self.target_net(images, states).max(1)[0]
+            next_images = torch.FloatTensor(np.array([x[3]["image"] for x in batch])).to(self.device)
+            next_states = torch.FloatTensor(np.array([x[3]["state"] for x in batch])).to(self.device)
+            with torch.no_grad():
+                next_q_values = self.target_net(next_images, next_states).max(1)[0]
             # print(f"Next Q-values: {next_q_values}")
             # Compute target Q-values
             target_q_values = rewards + self.gamma * next_q_values
@@ -213,8 +240,8 @@ class DQNAgent(BaseAgent):
     def end_episode(self):
         """End of episode processing."""
         # Update epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
         
         # Track episode reward
         self.episode_rewards.append(self.last_episode_reward)
@@ -255,3 +282,6 @@ class DQNAgent(BaseAgent):
             self.reward_count = checkpoint['reward_count']
             self.reward_mean = checkpoint['reward_mean']
             self.reward_std = checkpoint['reward_std'] 
+
+    def take_action(self, state):
+        return super().take_action(state)
