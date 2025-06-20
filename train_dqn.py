@@ -13,11 +13,13 @@ import numpy as np
 from tqdm import tqdm
 import math
 import random
+import torch
 
 from env.simple_festival_env import SimpleFestivalEnv
 from agents.dqn_agent import DQNAgent
 from simulation import FieldRenderer
 
+torch.randn(1).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
 # visualization parameters
 VIZ_INTERVAL = 500     # run a GUI episode every 
@@ -50,7 +52,7 @@ def run_gui_episode(agent: DQNAgent,
         plt.draw()
         plt.pause(0.01)  # Use pause instead of sleep
 
-    print(f"GUI Episode finished with reward: {total_reward}")
+    #print(f"GUI Episode finished with reward: {total_reward}")
     plt.pause(1)  # Pause to show final state
     plt.close('all')  # Close the plot window
     plt.ioff()  # Turn off interactive mode
@@ -67,15 +69,21 @@ def train_agent(
     memory_size: int = 100000,
     batch_size: int = 128,
     target_update: int = 10,
-    random_seed: int = 2025,
+    random_seed: int = 42,
     show_gui: bool = False,
-    save_results: bool = True
+    save_results: bool = True,
+    optimizer: str = "adam",
+    embedding_dim: int = 256,
+    margin: float = 0.2,
+    early_stop_patience=50,
+    early_stop_threshold=-np.inf,
+    verbose=False
 ) -> tuple[DQNAgent, list[float]]:
     # setting up the environment
     train_env = SimpleFestivalEnv(seed=random_seed)
     state, _ = train_env.reset()
     
-    print(f"Environment input shape: {state['image'].shape}")
+    #print(f"Environment input shape: {state['image'].shape}")
     
     # Initialize DQN agent
     agent = DQNAgent(
@@ -89,11 +97,14 @@ def train_agent(
         batch_size=batch_size,
         target_update=target_update,
         normalize_rewards=True,  # Enable reward normalization
-        seed=random_seed
+        seed=random_seed,
+        optimizer=optimizer,
+        embedding_dim=embedding_dim,
+        margin=margin
     )
 
     # Warm-up phase: fill replay buffer with random actions
-    print("Warming up replay buffer...")
+    #print("Warming up replay buffer...")
     warmup = True
     warmup_steps = 20000 
     state, _ = train_env.reset()
@@ -104,12 +115,14 @@ def train_agent(
         state = next_state
         if done:
             state, _ = train_env.reset()
-    print("Warm-up complete!")
-    print(f"Initial reward norm: mean={agent.reward_mean:.3f}, std={agent.reward_std:.3f}")
+    #print("Warm-up complete!")
+    #print(f"Initial reward norm: mean={agent.reward_mean:.3f}, std={agent.reward_std:.3f}")
 
     episode_returns: list[float] = []
     # best_return = float('-inf')
     # no_improvement_count = 0
+
+    patience_counter = 0  # reset counter if improving
 
     # training loop
     for ep in range(1, episodes + 1):
@@ -157,28 +170,43 @@ def train_agent(
         ma = np.mean(episode_returns[-10:]) if len(episode_returns) >= 10 else np.nan
         
         # Print episode summary with bin and pickup info
-        print(f"Episode {ep:>4} | Return {G:>6.1f} | MovingAvg {ma:>6.1f} | ε {agent.epsilon:5.3f} | Pickups: {pickups} | Bins: {bins_used}")
+        #print(f"Episode {ep:>4} | Return {G:>6.1f} | MovingAvg {ma:>6.1f} | ε {agent.epsilon:5.3f} | Pickups: {pickups} | Bins: {bins_used}")
 
         # Print reward normalization stats every 50 episodes
-        if ep % 50 == 0:
-            print(f"  Reward norm: mean={agent.reward_mean:.3f}, std={agent.reward_std:.3f}, count={agent.reward_count}")
+        #if ep % 50 == 0:
+            #print(f"  Reward norm: mean={agent.reward_mean:.3f}, std={agent.reward_std:.3f}, count={agent.reward_count}")
 
         # show with GUI
         if show_gui and ep % 10 == 0: 
-            print(f"\n Visualising policy after episode {ep} …")
+            #print(f"\n Visualising policy after episode {ep} …")
             run_gui_episode(agent, max_steps)
-            print("Training continues …\n")
+            #print("Training continues …\n")
 
         # Early stopping
         # if no_improvement_count >= 100: 
         #     print(f"\nEarly stopping at episode {ep} - no improvement for 100 episodes")
         #     break
 
+
+        # Early stopping check
+        if len(episode_returns) >= 10:
+            recent_avg = np.mean(episode_returns[-10:])
+            if recent_avg < early_stop_threshold:
+                patience_counter += 1
+                if verbose:
+                    print(f"Patience {patience_counter}/{early_stop_patience} | Recent avg: {recent_avg:.2f}")
+                if patience_counter >= early_stop_patience:
+                    if verbose:
+                        print(f"Early stopping at episode {ep} due to low performance.")
+                    break
+            else:
+                patience_counter = 0
+
     if save_results:
         timestamp = datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
         Path("results").mkdir(exist_ok=True)
         agent.save(Path("results") / f"dqn_model_{timestamp}.pt")
-        print(f"\nTraining finished – model saved as results/dqn_model_{timestamp}.pt")
+        #print(f"\nTraining finished – model saved as results/dqn_model_{timestamp}.pt")
 
     return agent, episode_returns
 
@@ -246,7 +274,7 @@ if __name__ == "__main__":
     epsilon_decay = 0.998   # Faster decay
     memory_size = 10000
     batch_size = 64         # Smaller batch for more frequent updates
-    target_update = 100     # More frequent target updates
+    target_update = 1000     # More frequent target updates
     random_seed = 42
     print_every = 50
     
@@ -262,7 +290,10 @@ if __name__ == "__main__":
         batch_size=batch_size,
         target_update=target_update,
         random_seed=random_seed,
-        show_gui=False
+        show_gui=False,
+        optimizer="adam",
+        embedding_dim=256,
+        margin=0.2
     )
     
     plot_learning_curve(returns, episodes)

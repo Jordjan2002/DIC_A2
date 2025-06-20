@@ -2,24 +2,25 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 from train_dqn import train_agent
+from train_dqn import plot_learning_curve
 
 # Hyperparameter grid
-#alphas = [1e-4, 5e-4, 1e-3] #learning rate
-alphas = [0.001] #learning rate
+alphas = [1e-4, 5e-4, 1e-3] #learning rate
+#alphas = [0.001] #learning rate
 gammas = [0.99] #discount factor
 batch_sizes = [64]
-#epsilon_decays = [0.95, 0.99, 0.995]
-epsilon_decays = [0.998]
-#target_updates = [100, 500, 1000]
-target_updates = [1000]
-#optimizers =["adam", "adamW", "sgd"]
-optimizers =["adam"]
-#embedding_dims = [128, 256, 512]
+epsilon_decays = [0.95, 0.99, 0.999]
+#epsilon_decays = [0.998]
+target_updates = [100, 500, 1000]
+#target_updates = [1000]
+optimizers =["adam", "adamW", "sgd"]
+#optimizers =["adam"]
+random_seed = [20, 200]
 embedding_dims = [256]
-#margins = [0.2, 0.5, 1.0]
 margins = [0.2]
 
-episodes = 500
+
+episodes = 1000
 
 results = []
 search_space = list(itertools.product(alphas, gammas, batch_sizes, epsilon_decays, target_updates, optimizers, embedding_dims, margins))
@@ -72,6 +73,9 @@ sorted_results = sorted(results, key=lambda x: x["avg_return"], reverse=True)
     #print(res)
 
 
+plot_learning_curve(sorted_results[0]["returns"], episodes)
+
+"""
 # -------- PLOT TOP 5 LEARNING CURVES --------
 import matplotlib.pyplot as plt
 
@@ -105,3 +109,4 @@ plt.legend(loc="upper left", fontsize='small')
 plt.grid(True)
 plt.tight_layout()
 plt.show()
+"""
