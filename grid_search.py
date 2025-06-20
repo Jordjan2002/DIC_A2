@@ -73,16 +73,13 @@ sorted_results = sorted(results, key=lambda x: x["avg_return"], reverse=True)
     #print(res)
 
 
-plot_learning_curve(sorted_results[0]["returns"], episodes)
 
-"""
 # -------- PLOT TOP 5 LEARNING CURVES --------
 import matplotlib.pyplot as plt
 
 plt.figure(figsize=(12, 6))
 
-#for i, res in enumerate(sorted_results[:5]):
-for i, res in enumerate(sorted_results[:1]):
+for i, res in enumerate(sorted_results[:5]):
     label = (f"{res['optimizer']}, lr={res['alpha']}, gamma={res['gamma']}, "
              f"bs={res['batch_size']}, eps_decay={res['epsilon_decay']}, "
              f"embed={res['embedding_dim']}, margin={res['margin']}")
@@ -109,4 +106,3 @@ plt.legend(loc="upper left", fontsize='small')
 plt.grid(True)
 plt.tight_layout()
 plt.show()
-"""
