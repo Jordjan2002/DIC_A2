@@ -16,7 +16,7 @@ class BaseAgent(ABC):
         """
 
     @abstractmethod
-    def take_action(self, state: tuple[int, int]) -> int:
+    def act(self, state: tuple[int, int]) -> int:
         """Any code that does the action should be included here.
 
         Args:
@@ -35,3 +35,4 @@ class BaseAgent(ABC):
             action: The action which was taken by the agent.
         """
         raise NotImplementedError
+
