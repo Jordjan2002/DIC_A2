@@ -6,32 +6,28 @@ from train_dqn import plot_learning_curve
 
 # Hyperparameter grid
 alphas = [1e-4, 5e-4, 1e-3] #learning rate
-#alphas = [0.001] #learning rate
-gammas = [0.99] #discount factor
-batch_sizes = [64]
-epsilon_decays = [0.95, 0.99, 0.999]
-#epsilon_decays = [0.998]
+epsilon_decays = [0.99, 0.999]
 target_updates = [100, 500, 1000]
-#target_updates = [1000]
 optimizers =["adam", "adamW", "sgd"]
-#optimizers =["adam"]
-random_seed = [20, 200]
-embedding_dims = [256]
-margins = [0.2]
+random_seeds = [20, 200]
 
+gamma = 0.99 #discount factor
+batch_size = 64
+embedding_dim = 256
+margin = 0.2
 
-episodes = 1000
+episodes = 300
 
 results = []
-search_space = list(itertools.product(alphas, gammas, batch_sizes, epsilon_decays, target_updates, optimizers, embedding_dims, margins))
+search_space = list(itertools.product(alphas, epsilon_decays, target_updates, optimizers, random_seeds))
 total_runs = len(search_space)
 
-for idx, (alpha, gamma, batch_size, eps_decay, target_update, optimizer, embedding_dim, margin) in enumerate(search_space, 1):
+for idx, (alpha, eps_decay, target_update, optimizer, random_seed) in enumerate(search_space, 1):
     print(f"""
         ============================== 
         Training [{idx}/{total_runs}]
-        alpha={alpha}, gamma={gamma}, batch_size={batch_size}, epsilon_decay={eps_decay}, 
-        target_update={target_update}, optimizer={optimizer}, embedding_dim={embedding_dim}, margin={margin}
+        alpha={alpha}, epsilon_decay={eps_decay}, 
+        target_update={target_update}, optimizer={optimizer}, random_seed={random_seed}
         ==============================""")
 
     agent, returns = train_agent(
@@ -61,6 +57,7 @@ for idx, (alpha, gamma, batch_size, eps_decay, target_update, optimizer, embeddi
         "optimizer":optimizer,
         "embedding_dim":embedding_dim,
         "margin":margin,
+        "random_seed":random_seed,
         "avg_return": avg_return,
         "returns": returns
     })
@@ -68,9 +65,9 @@ for idx, (alpha, gamma, batch_size, eps_decay, target_update, optimizer, embeddi
 # Sort and print best results
 sorted_results = sorted(results, key=lambda x: x["avg_return"], reverse=True)
 
-#print("\nTop 5 Hyperparameter Sets:")
-#for res in sorted_results[:5]:
-    #print(res)
+#print("\nTop 10 Hyperparameter Sets:")
+for res in sorted_results[:10]:
+    print(res)
 
 
 
@@ -80,9 +77,8 @@ import matplotlib.pyplot as plt
 plt.figure(figsize=(12, 6))
 
 for i, res in enumerate(sorted_results[:5]):
-    label = (f"{res['optimizer']}, lr={res['alpha']}, gamma={res['gamma']}, "
-             f"bs={res['batch_size']}, eps_decay={res['epsilon_decay']}, "
-             f"embed={res['embedding_dim']}, margin={res['margin']}")
+    label = (f"{res['optimizer']}, lr={res['alpha']}, "
+             f"eps_decay={res['epsilon_decay']}, random_seeds={res['random_seed']}")
     
     plt.plot(res["returns"], label=f"#{i+1}: {label}")
 
