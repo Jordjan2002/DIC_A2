@@ -12,8 +12,7 @@ from tqdm import tqdm
 from pathlib import Path
 from env import EnvConfig
 from env.festival_trash_env import FestivalEnv
-from agents import RandomAgent
-from agents.dqn_agent import DQNAgent
+from agents import RandomAgent, DQNAgent, PPOAgent
 from typing import TYPE_CHECKING
 import time
 if TYPE_CHECKING:                 # only for type checkers / IDEs
@@ -236,7 +235,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--model", type=str, default=None,
                        help="Path to the trained model file. If not specified, uses the most recent model.")
-    parser.add_argument("--agent", type=str, choices=["random", "dqn"], default="random",
+    parser.add_argument("--agent", type=str, choices=["random", "dqn", "ppo"], default="random",
                        help="Type of agent to use")
     args = parser.parse_args()
 
@@ -254,14 +253,24 @@ if __name__ == "__main__":
     if args.agent == "dqn":
         # Get the model path
         model_path = args.model if args.model else get_latest_model()
-        if not model_path:
-            print("No trained model found. Please train a model first.")
+        if not model_path or "dqn" not in Path(model_path).name:
+            print("No trained DQN model found. Please train a model first or specify a path.")
             exit(1)
         print(f"Using model: {model_path}")
         
         # Initialize and load the trained DQN agent
-        agent = DQNAgent()
-        agent.load(model_path)
+        agent = DQNAgent(n_actions=env.action_space.n)
+        agent.load(Path(model_path))
+    elif args.agent == "ppo":
+        model_path = args.model
+        if not model_path or "ppo" not in Path(model_path).name:
+            print("No PPO model specified. Please provide a model path using --model.")
+            exit(1)
+        print(f"Using model: {model_path}")
+        
+        # Initialize and load the trained PPO agent
+        agent = PPOAgent(n_actions=env.action_space.n)
+        agent.load(Path(model_path))
     else:
         agent = RandomAgent(env.action_space)
 

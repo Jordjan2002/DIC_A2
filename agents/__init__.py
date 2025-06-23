@@ -1,3 +1,4 @@
 from .random_agent import RandomAgent
+from .ppo_agent import PPOAgent
 
-__all__ = ["RandomAgent"]
+__all__ = ["RandomAgent", "PPOAgent"]
