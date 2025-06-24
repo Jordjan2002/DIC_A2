@@ -309,7 +309,7 @@ if __name__ == "__main__":
     parser.add_argument("--window-size", type=int, default=80)
     args = parser.parse_args()
 
-    env_config = EnvConfig(max_steps=40)
+    env_config = EnvConfig(max_steps=800)
     gamma_values = [0.99, 0.95, 0.9]
     clip_values = [0.2, 0.1, 0.3]
     gamma_and_clip_values = list(product(gamma_values, clip_values))
