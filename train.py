@@ -55,7 +55,7 @@ def train_ppo(
                 action, log_prob, value = agent.act(obs)
             
             # Take action
-            next_obs, reward, done, trunc, info = env.step(action)
+            next_obs, reward, done, trunc, info, _ = env.step(action)
             done = done or trunc
             
             # Store transition
