@@ -7,7 +7,7 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import matplotlib.pyplot as plt
-from env import EnvConfig, FestivalEnv
+from env.festival_trash_env_old import EnvConfigOld, FestivalEnvOld
 from agents import PPOAgent
 from simulation import run_episode, FieldRenderer
 
@@ -171,8 +171,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Create environment
-    cfg = EnvConfig(max_steps=500)
-    env = FestivalEnv(cfg)
+    cfg = EnvConfigOld(max_steps=500)
+    env = FestivalEnvOld(cfg)
     
     # Create agent
     agent = PPOAgent(
