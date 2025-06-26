@@ -180,13 +180,13 @@ if __name__ == "__main__":
         img_channels=1,  # 1 channel for the sensor image
         img_size=64,     # 64x64 image size
         state_dim=4,     # 4-dimensional state vector
-        hidden_dim=64,
+        hidden_dim=12,
         lr=3e-4,
         gamma=0.99,
         gae_lambda=0.95,
         clip_ratio=0.2,
         train_iters=10,
-        batch_size=32
+        batch_size=64
     )
     
     # Load pretrained model if specified
