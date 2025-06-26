@@ -35,3 +35,4 @@ class BaseAgent(ABC):
             action: The action which was taken by the agent.
         """
         raise NotImplementedError
+
