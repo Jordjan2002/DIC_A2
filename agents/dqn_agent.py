@@ -8,6 +8,7 @@ import numpy as np
 from collections import deque
 import random
 from pathlib import Path
+import torch.serialization
 from agents.base_agent import BaseAgent
 
 
@@ -71,7 +72,7 @@ class DQNAgent(BaseAgent):
         batch_size: int = 128,
         target_update: int = 500,
         normalize_rewards: bool = True,
-        seed: int | None = None
+        seed: int | None = None  # Kept for backwards compatibility but not used
     ):
         self.n_actions = n_actions
         self.alpha = alpha
@@ -90,12 +91,6 @@ class DQNAgent(BaseAgent):
         self.reward_count = 0
         self.reward_mean = 0.0
         self.reward_std = 1.0
-        
-        # Set random seeds
-        if seed is not None:
-            torch.manual_seed(seed)
-            np.random.seed(seed)
-            random.seed(seed)
         
         # Initialize networks
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -154,11 +149,21 @@ class DQNAgent(BaseAgent):
                 # Return best action
                 return q_values.argmax().item()
 
-    def update(self, state, action, reward, next_state, warmup=False):
+    def update(self, state, action, reward, next_state, done: bool, warmup: bool = False):
+        """Update the agent with a new experience.
+        
+        Args:
+            state: Current state
+            action: Action taken
+            reward: Reward received
+            next_state: Next state
+            done: Whether this is a terminal state
+            warmup: Whether this is during warmup phase
+        """
         # Normalize reward
         normalized_reward = self._normalize_reward(reward)
         
-        self.memory.append((state, action, normalized_reward, next_state))
+        self.memory.append((state, action, normalized_reward, next_state, done))
         self.last_episode_reward += reward  # Keep original reward for tracking
         self.steps += 1
         
@@ -178,22 +183,23 @@ class DQNAgent(BaseAgent):
         # Prepare batch data
         images = torch.FloatTensor(np.array([x[0]["image"] for x in batch])).to(self.device)
         states = torch.FloatTensor(np.array([x[0]["state"] for x in batch])).to(self.device)
+        next_images = torch.FloatTensor(np.array([x[3]["image"] for x in batch])).to(self.device)
+        next_states = torch.FloatTensor(np.array([x[3]["state"] for x in batch])).to(self.device)
         rewards = torch.FloatTensor([x[2] for x in batch]).to(self.device)
         actions = torch.LongTensor([x[1] for x in batch]).to(self.device)
+        dones = torch.BoolTensor([x[4] for x in batch]).to(self.device)
         
         # Get current Q-values
         current_q_values = self.policy_net(images, states).gather(1, actions.unsqueeze(1))
-        # print(f"Current Q-values: {current_q_values}")
         
-        # Get next Q-values from target network
+        # Get next Q-values from target network using next states
         with torch.no_grad():
-            next_q_values = self.target_net(images, states).max(1)[0]
-            # print(f"Next Q-values: {next_q_values}")
+            next_q_values = self.target_net(next_images, next_states).max(1)[0]
+            # Set future reward to 0 for terminal states
+            next_q_values[dones] = 0.0
             # Compute target Q-values
             target_q_values = rewards + self.gamma * next_q_values
-            # print(f"Target Q-values: {target_q_values}")
         
-
         # Compute loss and update
         loss = nn.MSELoss()(current_q_values.squeeze(), target_q_values)
         
@@ -208,7 +214,6 @@ class DQNAgent(BaseAgent):
         # Track metrics
         self.losses.append(loss.item())
         self.q_values.append(current_q_values.mean().item())
-
 
     def end_episode(self):
         """End of episode processing."""
@@ -239,7 +244,19 @@ class DQNAgent(BaseAgent):
 
     def load(self, path: Path):
         """Load the model."""
-        checkpoint = torch.load(path, map_location=self.device)
+        try:
+            # First try with weights_only=False (old behavior)
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        except Exception as e:
+            print("Warning: Failed to load with weights_only=False, trying with safe_globals...")
+            try:
+                # Add numpy scalar to safe globals and try again
+                torch.serialization.add_safe_globals(['numpy._core.multiarray.scalar'])
+                checkpoint = torch.load(path, map_location=self.device)
+            except Exception as e:
+                print("Warning: Failed with safe_globals, trying one last time with weights_only=True...")
+                checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+            
         self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

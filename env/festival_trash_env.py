@@ -199,15 +199,15 @@ class FestivalEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 30}
 
     # --------------------------------------------------------------------- #
-    def __init__(self, cfg: EnvConfig = EnvConfig(), render_mode: str | None = None, seed: int | None = None):
+    def __init__(self, cfg: EnvConfig = None, render_mode: str | None = None, seed: int | None = None):
         super().__init__()
-        self.cfg = cfg
+        self.cfg = cfg if cfg is not None else EnvConfig()
         self.render_mode = render_mode
         self.rng = np.random.default_rng(seed)
 
         # observation space
         self.observation_space = Dict(
-            image=Box(low=0.0, high=1.0, shape=(4, cfg.img_px, cfg.img_px), dtype=np.float32),
+            image=Box(low=0.0, high=1.0, shape=(4, self.cfg.img_px, self.cfg.img_px), dtype=np.float32),
             state=Box(low=0.0, high=1.0, shape=(4,), dtype=np.float32),
         )
         self.action_space = Discrete(len(DIRECTIONS))
